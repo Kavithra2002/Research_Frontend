@@ -1,36 +1,65 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Frontend
 
-## Getting Started
+A Next.js + TypeScript starter wired up with the default
+[shadcn/ui](https://ui.shadcn.com) system, a collapsible sidebar and a
+light / dark / system theme switcher powered by
+[`next-themes`](https://github.com/pacocoursey/next-themes).
 
-First, run the development server:
+## Stack
+
+- **Framework:** Next.js 16 (App Router, Turbopack)
+- **Language:** TypeScript
+- **Styling:** Tailwind CSS v4
+- **Components:** shadcn/ui (Base UI variant) + Lucide icons
+- **Theming:** `next-themes` (light / dark / system, class-based)
+
+## Getting started
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cd frontend
+npm install        # already done if you just cloned this folder
+npm run dev        # start the dev server at http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Other scripts:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm run build      # production build
+npm run start      # serve the production build
+npm run lint       # eslint
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Project layout
 
-## Learn More
+```
+src/
+  app/
+    layout.tsx          # wraps the app with ThemeProvider
+    page.tsx            # sample dashboard page (sidebar + header + cards)
+    globals.css         # tailwind + shadcn tokens (light/dark)
+  components/
+    app-sidebar.tsx     # sample sidebar (menu groups + footer)
+    theme-provider.tsx  # next-themes wrapper
+    theme-toggle.tsx    # light/dark/system dropdown
+    ui/                 # shadcn primitives (button, sidebar, sheet, ...)
+  hooks/
+    use-mobile.ts
+  lib/
+    utils.ts
+components.json         # shadcn config (added by `shadcn init`)
+```
 
-To learn more about Next.js, take a look at the following resources:
+## Adding more shadcn components
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+npx shadcn@latest add card table form input ...
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+See the full list at <https://ui.shadcn.com/docs/components>.
 
-## Deploy on Vercel
+## Theming
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+The theme switcher lives in the top-right of the header and offers
+**Light**, **Dark** and **System** modes. The selection is persisted by
+`next-themes` and applied as a `class="dark"` on `<html>`, matching the
+default shadcn token setup defined in `src/app/globals.css`.

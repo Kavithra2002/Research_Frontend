@@ -16,27 +16,27 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { AuthStatus } from "@/components/auth/auth-status";
 import { RoleGate } from "@/components/auth/role-gate";
-import { ExtractedExplorer } from "@/components/extracted/extracted-explorer";
+import { NewlyUpdatedPanel } from "@/components/system/newly-updated-panel";
 
 export const dynamic = "force-dynamic";
 
-export default function Home() {
+export default function SystemPage() {
   return (
-    <RoleGate allow={["Admin", "User"]}>
+    <RoleGate allow={["Admin"]}>
       <SidebarProvider>
         <AppSidebar />
-        <SidebarInset className="min-h-svh min-w-0 overflow-x-hidden">
-          <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2 border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+        <SidebarInset>
+          <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4">
             <SidebarTrigger className="-ml-1" />
             <Separator orientation="vertical" className="mr-2 h-4" />
             <Breadcrumb>
               <BreadcrumbList>
                 <BreadcrumbItem className="hidden md:block">
-                  <BreadcrumbLink href="/">Dashboard</BreadcrumbLink>
+                  <BreadcrumbLink href="/system">Dashboard</BreadcrumbLink>
                 </BreadcrumbItem>
                 <BreadcrumbSeparator className="hidden md:block" />
                 <BreadcrumbItem>
-                  <BreadcrumbPage>Extracted Tables</BreadcrumbPage>
+                  <BreadcrumbPage>System</BreadcrumbPage>
                 </BreadcrumbItem>
               </BreadcrumbList>
             </Breadcrumb>
@@ -45,8 +45,8 @@ export default function Home() {
               <ThemeToggle />
             </div>
           </header>
-          <main className="flex min-w-0 flex-col px-4 pb-4 pt-2">
-            <ExtractedExplorer />
+          <main className="flex flex-1 min-h-0 flex-col p-4">
+            <NewlyUpdatedPanel />
           </main>
         </SidebarInset>
       </SidebarProvider>

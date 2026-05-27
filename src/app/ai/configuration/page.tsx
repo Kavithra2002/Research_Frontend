@@ -1,3 +1,7 @@
+"use client";
+
+import { SlidersHorizontal } from "lucide-react";
+
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -6,6 +10,12 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
+import {
+  Card,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import {
   SidebarInset,
@@ -16,17 +26,15 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { AuthStatus } from "@/components/auth/auth-status";
 import { RoleGate } from "@/components/auth/role-gate";
-import { ExtractedExplorer } from "@/components/extracted/extracted-explorer";
+import { AiConfigurationPanel } from "@/components/ai/ai-configuration-panel";
 
-export const dynamic = "force-dynamic";
-
-export default function Home() {
+export default function AiConfigurationPage() {
   return (
     <RoleGate allow={["Admin", "User"]}>
       <SidebarProvider>
         <AppSidebar />
-        <SidebarInset className="min-h-svh min-w-0 overflow-x-hidden">
-          <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2 border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+        <SidebarInset>
+          <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4">
             <SidebarTrigger className="-ml-1" />
             <Separator orientation="vertical" className="mr-2 h-4" />
             <Breadcrumb>
@@ -35,8 +43,12 @@ export default function Home() {
                   <BreadcrumbLink href="/">Dashboard</BreadcrumbLink>
                 </BreadcrumbItem>
                 <BreadcrumbSeparator className="hidden md:block" />
+                <BreadcrumbItem className="hidden md:block">
+                  <BreadcrumbLink href="/ai">AI</BreadcrumbLink>
+                </BreadcrumbItem>
+                <BreadcrumbSeparator className="hidden md:block" />
                 <BreadcrumbItem>
-                  <BreadcrumbPage>Extracted Tables</BreadcrumbPage>
+                  <BreadcrumbPage>Configuration</BreadcrumbPage>
                 </BreadcrumbItem>
               </BreadcrumbList>
             </Breadcrumb>
@@ -45,8 +57,21 @@ export default function Home() {
               <ThemeToggle />
             </div>
           </header>
-          <main className="flex min-w-0 flex-col px-4 pb-4 pt-2">
-            <ExtractedExplorer />
+          <main className="flex flex-1 min-h-0 flex-col gap-4 p-4">
+            <Card size="sm">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <SlidersHorizontal className="size-4 text-muted-foreground" />
+                  AI Configuration
+                </CardTitle>
+                <CardDescription className="mt-1">
+                  Tune the AI extraction pipeline — choose the model, statement
+                  scope and capture DPI used when parsing financial reports.
+                </CardDescription>
+              </CardHeader>
+            </Card>
+
+            <AiConfigurationPanel />
           </main>
         </SidebarInset>
       </SidebarProvider>

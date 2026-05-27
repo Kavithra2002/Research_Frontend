@@ -16,11 +16,11 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { AuthStatus } from "@/components/auth/auth-status";
 import { RoleGate } from "@/components/auth/role-gate";
-import { ExtractedExplorer } from "@/components/extracted/extracted-explorer";
+import { ComparisonExplorer } from "@/components/ai/comparison-explorer";
 
 export const dynamic = "force-dynamic";
 
-export default function Home() {
+export default function AiComparisonPage() {
   return (
     <RoleGate allow={["Admin", "User"]}>
       <SidebarProvider>
@@ -35,8 +35,12 @@ export default function Home() {
                   <BreadcrumbLink href="/">Dashboard</BreadcrumbLink>
                 </BreadcrumbItem>
                 <BreadcrumbSeparator className="hidden md:block" />
+                <BreadcrumbItem className="hidden md:block">
+                  <BreadcrumbLink href="/ai">AI</BreadcrumbLink>
+                </BreadcrumbItem>
+                <BreadcrumbSeparator className="hidden md:block" />
                 <BreadcrumbItem>
-                  <BreadcrumbPage>Extracted Tables</BreadcrumbPage>
+                  <BreadcrumbPage>Comparison</BreadcrumbPage>
                 </BreadcrumbItem>
               </BreadcrumbList>
             </Breadcrumb>
@@ -46,7 +50,7 @@ export default function Home() {
             </div>
           </header>
           <main className="flex min-w-0 flex-col px-4 pb-4 pt-2">
-            <ExtractedExplorer />
+            <ComparisonExplorer />
           </main>
         </SidebarInset>
       </SidebarProvider>
