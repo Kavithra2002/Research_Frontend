@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
-import fs from "node:fs/promises";
-import path from "node:path";
+
+import {
+  getLocalRoot,
+  isR2Storage,
+  listDirectory,
+  readUtf8,
+  statFile,
+} from "@/lib/storage";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -31,49 +37,8 @@ function naturalCompare(a: string, b: string) {
   return a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
 }
 
-function getScriptRoot() {
-  const fromEnv = process.env.SCRIPT_ROOT;
-  if (fromEnv && fromEnv.trim().length > 0) {
-    return path.resolve(fromEnv);
-  }
-  return path.resolve(process.cwd(), "..", "backend");
-}
-
-function getExtractedRoot() {
-  const fromEnv = process.env.EXTRACTED_JSON_DIR;
-  if (fromEnv && fromEnv.trim().length > 0) {
-    return path.resolve(fromEnv);
-  }
-  return path.resolve(getScriptRoot(), "testing");
-}
-
-function getReportsRoot() {
-  const fromEnv = process.env.REPORTS_DIR;
-  if (fromEnv && fromEnv.trim().length > 0) {
-    return path.resolve(fromEnv);
-  }
-  return path.resolve(getScriptRoot(), "reports");
-}
-
 function prettifyCompanyName(name: string) {
   return name.replace(/_+/g, " ").replace(/\s+/g, " ").trim();
-}
-
-async function readDirSafe(dir: string) {
-  try {
-    return await fs.readdir(dir, { withFileTypes: true });
-  } catch {
-    return [];
-  }
-}
-
-async function readJsonSafe<T>(file: string): Promise<T | null> {
-  try {
-    const raw = await fs.readFile(file, "utf8");
-    return JSON.parse(raw) as T;
-  } catch {
-    return null;
-  }
 }
 
 type MetaFile = {
@@ -93,44 +58,43 @@ type RunLogFile = {
   results?: RunLogEntry[];
 };
 
+async function readJsonSafe<T>(
+  ...segments: string[]
+): Promise<T | null> {
+  try {
+    const raw = await readUtf8("testing", ...segments);
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
+
 async function loadCompanyReports(
-  reportsRoot: string,
   company: string,
 ): Promise<{ reportTypes: Record<string, ExtractedReportFile[]>; total: number }> {
   const reportTypes: Record<string, ExtractedReportFile[]> = {};
   let total = 0;
 
-  const companyDir = path.join(reportsRoot, company);
-  const typeEntries = await readDirSafe(companyDir);
+  const typeLevel = await listDirectory("reports", company);
 
-  for (const typeEntry of typeEntries) {
-    if (!typeEntry.isDirectory()) continue;
-
-    const typeDir = path.join(companyDir, typeEntry.name);
-    const fileEntries = await readDirSafe(typeDir);
+  for (const typeName of typeLevel.directories) {
+    const filesLevel = await listDirectory("reports", company, typeName);
     const files: ExtractedReportFile[] = [];
 
-    for (const fileEntry of fileEntries) {
-      if (!fileEntry.isFile()) continue;
-      const ext = path.extname(fileEntry.name).toLowerCase();
+    for (const f of filesLevel.files) {
+      const ext = f.name.slice(f.name.lastIndexOf(".")).toLowerCase();
       if (!ALLOWED_EXTENSIONS.has(ext)) continue;
-
-      const stat = await fs
-        .stat(path.join(typeDir, fileEntry.name))
-        .catch(() => null);
-      if (!stat) continue;
-
       files.push({
-        name: fileEntry.name,
-        size: stat.size,
-        modifiedAt: stat.mtime.toISOString(),
+        name: f.name,
+        size: f.size,
+        modifiedAt: f.modifiedAt,
       });
     }
 
     files.sort((a, b) => naturalCompare(a.name, b.name));
 
     if (files.length > 0) {
-      reportTypes[typeEntry.name] = files;
+      reportTypes[typeName] = files;
       total += files.length;
     }
   }
@@ -139,12 +103,16 @@ async function loadCompanyReports(
 }
 
 export async function GET() {
-  const extractedRoot = getExtractedRoot();
-  const reportsRoot = getReportsRoot();
+  const extractedRoot = isR2Storage()
+    ? `r2://${process.env.R2_BUCKET}/testing`
+    : getLocalRoot("testing");
+  const reportsRoot = isR2Storage()
+    ? `r2://${process.env.R2_BUCKET}/reports`
+    : getLocalRoot("reports");
 
   let rootEntries;
   try {
-    rootEntries = await fs.readdir(extractedRoot, { withFileTypes: true });
+    rootEntries = await listDirectory("testing");
   } catch (error) {
     return NextResponse.json(
       {
@@ -157,9 +125,7 @@ export async function GET() {
     );
   }
 
-  const runLog = await readJsonSafe<RunLogFile>(
-    path.join(extractedRoot, "_run_log.json"),
-  );
+  const runLog = await readJsonSafe<RunLogFile>("_run_log.json");
   const runOrder: string[] = [];
   const runStatus = new Map<string, string>();
   if (runLog && Array.isArray(runLog.results)) {
@@ -172,43 +138,41 @@ export async function GET() {
 
   const companies: ExtractedCompany[] = [];
 
-  for (const entry of rootEntries) {
-    if (!entry.isDirectory()) continue;
+  for (const companyName of rootEntries.directories) {
+    const resultsFile = `${companyName}_results.json`;
+    const resultsStat = await statFile("testing", companyName, resultsFile);
+    if (!resultsStat) continue;
 
-    const companyDir = path.join(extractedRoot, entry.name);
-    const resultsPath = path.join(companyDir, `${entry.name}_results.json`);
-    const metaPath = path.join(companyDir, "extraction_meta.json");
-
-    const resultsStat = await fs.stat(resultsPath).catch(() => null);
-    if (!resultsStat || !resultsStat.isFile()) continue;
-
-    const meta = await readJsonSafe<MetaFile>(metaPath);
+    const meta = await readJsonSafe<MetaFile>(
+      companyName,
+      "extraction_meta.json",
+    );
 
     let statements: string[] = Array.isArray(meta?.statements)
       ? (meta!.statements as string[]).slice()
       : [];
 
     if (statements.length === 0) {
-      const results = await readJsonSafe<Record<string, unknown>>(resultsPath);
+      const results = await readJsonSafe<Record<string, unknown>>(
+        companyName,
+        resultsFile,
+      );
       if (results && typeof results === "object") {
         statements = Object.keys(results);
       }
     }
 
-    const { reportTypes, total } = await loadCompanyReports(
-      reportsRoot,
-      entry.name,
-    );
+    const { reportTypes, total } = await loadCompanyReports(companyName);
 
     companies.push({
-      name: entry.name,
-      displayName: prettifyCompanyName(entry.name),
-      resultsFile: `${entry.name}_results.json`,
+      name: companyName,
+      displayName: prettifyCompanyName(companyName),
+      resultsFile,
       metaFile: meta ? "extraction_meta.json" : null,
       statements,
       model: meta?.model ?? null,
       generatedAt: meta?.generated_at ?? null,
-      status: runStatus.get(entry.name) ?? null,
+      status: runStatus.get(companyName) ?? null,
       hasReports: total > 0,
       reportTypes,
       totalReports: total,

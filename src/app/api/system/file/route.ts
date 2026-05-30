@@ -1,25 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import fs from "node:fs/promises";
 import path from "node:path";
+
+import { isSafeSegment, readBytes, statFile } from "@/lib/storage";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
-function getRoot() {
-  const fromEnv = process.env.NEWLY_UPLOADED_DIR;
-  if (fromEnv && fromEnv.trim().length > 0) {
-    return path.resolve(fromEnv);
-  }
-  return path.resolve(process.cwd(), "..", "backend", "newly_uploaded_report");
-}
-
-function isSafeSegment(segment: string) {
-  if (!segment) return false;
-  if (segment.includes("\0")) return false;
-  if (segment === "." || segment === "..") return false;
-  if (segment.includes("/") || segment.includes("\\")) return false;
-  return true;
-}
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -50,35 +35,23 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const root = getRoot();
-  const fullPath = path.resolve(root, company, type, file);
-
-  if (!fullPath.startsWith(root + path.sep) && fullPath !== root) {
-    return NextResponse.json(
-      { error: "Path traversal detected" },
-      { status: 400 },
-    );
-  }
-
-  let stat;
-  try {
-    stat = await fs.stat(fullPath);
-  } catch {
+  const stat = await statFile("newly_uploaded_report", company, type, file);
+  if (!stat) {
     return NextResponse.json({ error: "File not found" }, { status: 404 });
   }
 
-  if (!stat.isFile()) {
-    return NextResponse.json({ error: "Not a file" }, { status: 400 });
+  let body: Uint8Array;
+  try {
+    body = await readBytes("newly_uploaded_report", company, type, file);
+  } catch {
+    return NextResponse.json({ error: "File not found" }, { status: 404 });
   }
-
-  const data = await fs.readFile(fullPath);
-  const body = new Uint8Array(data);
 
   const disposition = download
     ? `attachment; filename="${encodeURIComponent(file)}"`
     : `inline; filename="${encodeURIComponent(file)}"`;
 
-  return new NextResponse(body, {
+  return new NextResponse(Buffer.from(body), {
     status: 200,
     headers: {
       "Content-Type": "application/pdf",

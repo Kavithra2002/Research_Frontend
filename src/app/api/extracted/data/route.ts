@@ -1,33 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import fs from "node:fs/promises";
-import path from "node:path";
+
+import { isSafeSegment, readUtf8 } from "@/lib/storage";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
-function getScriptRoot() {
-  const fromEnv = process.env.SCRIPT_ROOT;
-  if (fromEnv && fromEnv.trim().length > 0) {
-    return path.resolve(fromEnv);
-  }
-  return path.resolve(process.cwd(), "..", "backend");
-}
-
-function getExtractedRoot() {
-  const fromEnv = process.env.EXTRACTED_JSON_DIR;
-  if (fromEnv && fromEnv.trim().length > 0) {
-    return path.resolve(fromEnv);
-  }
-  return path.resolve(getScriptRoot(), "testing");
-}
-
-function isSafeSegment(segment: string) {
-  if (!segment) return false;
-  if (segment.includes("\0")) return false;
-  if (segment === "." || segment === "..") return false;
-  if (segment.includes("/") || segment.includes("\\")) return false;
-  return true;
-}
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -47,25 +23,11 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const extractedRoot = getExtractedRoot();
-  const companyDir = path.resolve(extractedRoot, company);
-
-  if (
-    !companyDir.startsWith(extractedRoot + path.sep) &&
-    companyDir !== extractedRoot
-  ) {
-    return NextResponse.json(
-      { error: "Path traversal detected" },
-      { status: 400 },
-    );
-  }
-
-  const resultsPath = path.join(companyDir, `${company}_results.json`);
-  const metaPath = path.join(companyDir, "extraction_meta.json");
+  const resultsFile = `${company}_results.json`;
 
   let raw: string;
   try {
-    raw = await fs.readFile(resultsPath, "utf8");
+    raw = await readUtf8("testing", company, resultsFile);
   } catch {
     return NextResponse.json(
       { error: "Extracted results not found", company },
@@ -88,7 +50,7 @@ export async function GET(request: NextRequest) {
 
   let meta: unknown = null;
   try {
-    const rawMeta = await fs.readFile(metaPath, "utf8");
+    const rawMeta = await readUtf8("testing", company, "extraction_meta.json");
     meta = JSON.parse(rawMeta);
   } catch {
     meta = null;

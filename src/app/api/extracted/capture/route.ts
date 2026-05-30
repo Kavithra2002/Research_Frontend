@@ -1,12 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import fs from "node:fs/promises";
 import path from "node:path";
 
-import {
-  getExtractedRoot,
-  isSafeSegment,
-  resolveCompanyDir,
-} from "@/lib/extracted-paths";
+import { isSafeSegment, readBytes, statFile } from "@/lib/storage";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -47,49 +42,25 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const extractedRoot = getExtractedRoot();
-  const companyDir = resolveCompanyDir(extractedRoot, company);
-
-  if (!companyDir) {
-    return NextResponse.json(
-      { error: "Path traversal detected" },
-      { status: 400 },
-    );
-  }
-
-  const fullPath = path.resolve(
-    companyDir,
+  const stat = await statFile(
+    "testing",
+    company,
     "captures",
     statement,
     file,
   );
-
-  const capturesRoot = path.resolve(companyDir, "captures");
-  if (
-    !fullPath.startsWith(capturesRoot + path.sep) &&
-    fullPath !== capturesRoot
-  ) {
-    return NextResponse.json(
-      { error: "Path traversal detected" },
-      { status: 400 },
-    );
+  if (!stat) {
+    return NextResponse.json({ error: "File not found" }, { status: 404 });
   }
 
-  let stat;
+  let body: Uint8Array;
   try {
-    stat = await fs.stat(fullPath);
+    body = await readBytes("testing", company, "captures", statement, file);
   } catch {
     return NextResponse.json({ error: "File not found" }, { status: 404 });
   }
 
-  if (!stat.isFile()) {
-    return NextResponse.json({ error: "Not a file" }, { status: 400 });
-  }
-
-  const data = await fs.readFile(fullPath);
-  const body = new Uint8Array(data);
-
-  return new NextResponse(body, {
+  return new NextResponse(Buffer.from(body), {
     status: 200,
     headers: {
       "Content-Type": contentType,

@@ -1,4 +1,8 @@
 import { NextRequest } from "next/server";
+import {
+  proxyToBackend,
+  shouldProxyPythonToBackend,
+} from "@/lib/backend-proxy";
 import { ChildProcess, spawn } from "node:child_process";
 import path from "node:path";
 
@@ -234,6 +238,10 @@ function streamingResponse() {
 }
 
 export async function POST(request: NextRequest) {
+  if (shouldProxyPythonToBackend()) {
+    return proxyToBackend(request, "/api/ai/non-financial");
+  }
+
   let body: Record<string, unknown> = {};
   try {
     body = (await request.json()) as Record<string, unknown>;
@@ -268,11 +276,18 @@ export async function POST(request: NextRequest) {
   return streamingResponse();
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  if (shouldProxyPythonToBackend()) {
+    return proxyToBackend(request, "/api/ai/non-financial");
+  }
   return streamingResponse();
 }
 
-export async function DELETE() {
+export async function DELETE(request: NextRequest) {
+  if (shouldProxyPythonToBackend()) {
+    return proxyToBackend(request, "/api/ai/non-financial");
+  }
+
   if (state.child) {
     try {
       state.child.kill();

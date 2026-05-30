@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
-import fs from "node:fs/promises";
-import path from "node:path";
+
+import {
+  listDirectory,
+  resolvePdfPath,
+  statFile,
+} from "@/lib/storage";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -25,9 +29,6 @@ type CompanyEntry = {
 
 const ALLOWED_EXTS = new Set([".pdf"]);
 
-// The non-financial briefing only consumes Annual reports. Quarterly (or any
-// other) report types are intentionally hidden from this section so the UI
-// can't pick a PDF the script won't analyse.
 function isAnnualReportType(name: string) {
   return name.trim().toLowerCase().includes("annual");
 }
@@ -36,71 +37,39 @@ function naturalCompare(a: string, b: string) {
   return a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
 }
 
-function backendDir() {
-  const fromEnv = process.env.SCRIPT_DIR;
-  if (fromEnv && fromEnv.trim().length > 0) {
-    return path.resolve(fromEnv);
-  }
-  return path.resolve(process.cwd(), "..", "backend");
-}
-
-function sourceRoots(): { key: SourceKey; dir: string }[] {
-  const root = backendDir();
-  return [
-    { key: "newly_uploaded_report", dir: path.join(root, "newly_uploaded_report") },
-    { key: "reports", dir: path.join(root, "reports") },
-  ];
-}
-
-async function readDirSafe(dir: string) {
-  try {
-    return await fs.readdir(dir, { withFileTypes: true });
-  } catch {
-    return [];
-  }
-}
-
 async function collectReportsFrom(
   source: SourceKey,
-  rootDir: string,
 ): Promise<Map<string, CompanyReportRef[]>> {
   const out = new Map<string, CompanyReportRef[]>();
-  const companyEntries = await readDirSafe(rootDir);
+  const companyLevel = await listDirectory(source);
 
-  for (const companyEntry of companyEntries) {
-    if (!companyEntry.isDirectory()) continue;
-
-    const companyDir = path.join(rootDir, companyEntry.name);
-    const typeEntries = await readDirSafe(companyDir);
-
+  for (const companyName of companyLevel.directories) {
+    const typeLevel = await listDirectory(source, companyName);
     const refs: CompanyReportRef[] = [];
-    for (const typeEntry of typeEntries) {
-      if (!typeEntry.isDirectory()) continue;
-      if (!isAnnualReportType(typeEntry.name)) continue;
-      const typeDir = path.join(companyDir, typeEntry.name);
-      const fileEntries = await readDirSafe(typeDir);
 
-      for (const fileEntry of fileEntries) {
-        if (!fileEntry.isFile()) continue;
-        const ext = path.extname(fileEntry.name).toLowerCase();
+    for (const typeName of typeLevel.directories) {
+      if (!isAnnualReportType(typeName)) continue;
+      const filesLevel = await listDirectory(source, companyName, typeName);
+
+      for (const f of filesLevel.files) {
+        const ext = f.name.slice(f.name.lastIndexOf(".")).toLowerCase();
         if (!ALLOWED_EXTS.has(ext)) continue;
-        const filePath = path.join(typeDir, fileEntry.name);
-        const stat = await fs.stat(filePath).catch(() => null);
+        const stat = await statFile(source, companyName, typeName, f.name);
         if (!stat) continue;
 
         refs.push({
           source,
-          reportType: typeEntry.name,
-          fileName: fileEntry.name,
-          fullPath: filePath,
+          reportType: typeName,
+          fileName: f.name,
+          fullPath: resolvePdfPath(source, companyName, typeName, f.name),
           size: stat.size,
-          modifiedAt: stat.mtime.toISOString(),
+          modifiedAt: stat.modifiedAt,
         });
       }
     }
 
     if (refs.length > 0) {
-      out.set(companyEntry.name, refs);
+      out.set(companyName, refs);
     }
   }
 
@@ -110,8 +79,8 @@ async function collectReportsFrom(
 export async function GET() {
   const merged = new Map<string, CompanyEntry>();
 
-  for (const { key, dir } of sourceRoots()) {
-    const fromSource = await collectReportsFrom(key, dir);
+  for (const key of ["newly_uploaded_report", "reports"] as const) {
+    const fromSource = await collectReportsFrom(key);
     for (const [name, refs] of fromSource) {
       const existing = merged.get(name);
       if (existing) {
@@ -129,7 +98,6 @@ export async function GET() {
 
   const companies: CompanyEntry[] = [];
   for (const entry of merged.values()) {
-    // Prefer the Annual report on top.
     entry.reports.sort((a, b) => {
       const aAnnual = a.reportType.toLowerCase().includes("annual") ? 0 : 1;
       const bAnnual = b.reportType.toLowerCase().includes("annual") ? 0 : 1;

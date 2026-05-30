@@ -1,4 +1,8 @@
 import { NextRequest } from "next/server";
+import {
+  proxyToBackend,
+  shouldProxyPythonToBackend,
+} from "@/lib/backend-proxy";
 import { ChildProcess, spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -307,6 +311,10 @@ function toStringArray(v: unknown): string[] | undefined {
 }
 
 export async function POST(request: NextRequest) {
+  if (shouldProxyPythonToBackend()) {
+    return proxyToBackend(request, "/api/system/extract");
+  }
+
   let body: Record<string, unknown> = {};
   try {
     body = (await request.json()) as Record<string, unknown>;
@@ -326,11 +334,18 @@ export async function POST(request: NextRequest) {
   return streamingResponse();
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  if (shouldProxyPythonToBackend()) {
+    return proxyToBackend(request, "/api/system/extract");
+  }
   return streamingResponse();
 }
 
-export async function DELETE() {
+export async function DELETE(request: NextRequest) {
+  if (shouldProxyPythonToBackend()) {
+    return proxyToBackend(request, "/api/system/extract");
+  }
+
   if (state.child) {
     try {
       state.child.kill();

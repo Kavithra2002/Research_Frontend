@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import fs from "node:fs/promises";
-import path from "node:path";
+
+import { getLocalRoot, isR2Storage, listDirectory } from "@/lib/storage";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -23,28 +23,14 @@ function naturalCompare(a: string, b: string) {
   return a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
 }
 
-function getReportsRoot() {
-  const fromEnv = process.env.REPORTS_DIR;
-  if (fromEnv && fromEnv.trim().length > 0) {
-    return path.resolve(fromEnv);
-  }
-  return path.resolve(process.cwd(), "..", "backend", "reports");
-}
-
-async function readDirSafe(dir: string) {
-  try {
-    return await fs.readdir(dir, { withFileTypes: true });
-  } catch {
-    return [];
-  }
-}
-
 export async function GET() {
-  const reportsRoot = getReportsRoot();
+  const reportsRoot = isR2Storage()
+    ? `r2://${process.env.R2_BUCKET}/reports`
+    : getLocalRoot("reports");
 
-  let rootEntries;
+  let companyDirs;
   try {
-    rootEntries = await fs.readdir(reportsRoot, { withFileTypes: true });
+    companyDirs = await listDirectory("reports");
   } catch (error) {
     return NextResponse.json(
       {
@@ -59,49 +45,36 @@ export async function GET() {
 
   const companies: CompanyReports[] = [];
 
-  for (const entry of rootEntries) {
-    if (!entry.isDirectory()) continue;
-
-    const companyDir = path.join(reportsRoot, entry.name);
-    const reportTypeEntries = await readDirSafe(companyDir);
+  for (const companyName of companyDirs.directories) {
+    const typeLevel = await listDirectory("reports", companyName);
     const reportTypes: Record<string, ReportFile[]> = {};
     let totalReports = 0;
 
-    for (const typeEntry of reportTypeEntries) {
-      if (!typeEntry.isDirectory()) continue;
-
-      const typeDir = path.join(companyDir, typeEntry.name);
-      const fileEntries = await readDirSafe(typeDir);
+    for (const typeName of typeLevel.directories) {
+      const filesLevel = await listDirectory("reports", companyName, typeName);
       const files: ReportFile[] = [];
 
-      for (const fileEntry of fileEntries) {
-        if (!fileEntry.isFile()) continue;
-        const ext = path.extname(fileEntry.name).toLowerCase();
+      for (const f of filesLevel.files) {
+        const ext = f.name.slice(f.name.lastIndexOf(".")).toLowerCase();
         if (!ALLOWED_EXTENSIONS.has(ext)) continue;
-
-        const stat = await fs
-          .stat(path.join(typeDir, fileEntry.name))
-          .catch(() => null);
-        if (!stat) continue;
-
         files.push({
-          name: fileEntry.name,
-          size: stat.size,
-          modifiedAt: stat.mtime.toISOString(),
+          name: f.name,
+          size: f.size,
+          modifiedAt: f.modifiedAt,
         });
       }
 
       files.sort((a, b) => naturalCompare(a.name, b.name));
 
       if (files.length > 0) {
-        reportTypes[typeEntry.name] = files;
+        reportTypes[typeName] = files;
         totalReports += files.length;
       }
     }
 
     if (totalReports > 0) {
       companies.push({
-        name: entry.name,
+        name: companyName,
         reportTypes,
         totalReports,
       });
