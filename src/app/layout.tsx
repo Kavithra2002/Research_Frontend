@@ -6,6 +6,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/components/auth/auth-provider";
 import { ScanFloatingStatus } from "@/components/system/scan-floating-status";
+import { NonFinancialFloatingStatus } from "@/components/ai/non-financial-floating-status";
 import { cn } from "@/lib/utils";
 
 const inter = Inter({subsets:['latin'],variable:'--font-sans'});
@@ -50,6 +51,7 @@ export default function RootLayout({
             <AuthProvider>
               {children}
               <ScanFloatingStatus />
+              <NonFinancialFloatingStatus />
             </AuthProvider>
           </ThemeProvider>
         </TooltipProvider>

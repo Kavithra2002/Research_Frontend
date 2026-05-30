@@ -10,6 +10,7 @@ import {
   GitCompare,
   LayoutDashboard,
   LifeBuoy,
+  Newspaper,
   Settings,
   SlidersHorizontal,
   Sparkles,
@@ -50,11 +51,17 @@ const mainNav: NavItem[] = [
   },
   { title: "System", url: "/system", icon: Activity, roles: ["Admin"] },
   { title: "Reports", url: "/reports", icon: FileText, roles: ["Admin", "User"] },
-  { title: "Analytics", url: "#", icon: BarChart3, roles: ["Admin", "User"] },
+  { title: "Analytics", url: "/analytics", icon: BarChart3, roles: ["Admin", "User"] },
   {
     title: "Comparison",
     url: "/ai/comparison",
     icon: GitCompare,
+    roles: ["Admin", "User"],
+  },
+  {
+    title: "Non Financial Data Section",
+    url: "/ai/non-financial",
+    icon: Newspaper,
     roles: ["Admin", "User"],
   },
 ];

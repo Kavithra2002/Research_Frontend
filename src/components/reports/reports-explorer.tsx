@@ -3,6 +3,7 @@
 import * as React from "react";
 import {
   Building2,
+  ChevronsUpDown,
   Download,
   ExternalLink,
   FileText,
@@ -10,22 +11,19 @@ import {
   Loader2,
   Maximize2,
   Minimize2,
-  PanelLeftClose,
-  PanelLeftOpen,
   RefreshCw,
   Search,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -91,9 +89,9 @@ export function ReportsExplorer() {
   const [selectedCompany, setSelectedCompany] = React.useState<string | null>(
     null,
   );
+  const [pickerOpen, setPickerOpen] = React.useState(false);
   const [activeType, setActiveType] = React.useState<string | null>(null);
   const [selectedFile, setSelectedFile] = React.useState<string | null>(null);
-  const [companiesCollapsed, setCompaniesCollapsed] = React.useState(false);
   const [viewerFullscreen, setViewerFullscreen] = React.useState(false);
 
   const load = React.useCallback(async () => {
@@ -125,10 +123,10 @@ export function ReportsExplorer() {
   }, [companies, query]);
 
   React.useEffect(() => {
-    if (!selectedCompany && filteredCompanies.length > 0) {
-      setSelectedCompany(filteredCompanies[0].name);
+    if (!selectedCompany && companies.length > 0) {
+      setSelectedCompany(companies[0].name);
     }
-  }, [filteredCompanies, selectedCompany]);
+  }, [companies, selectedCompany]);
 
   const company = React.useMemo(
     () => companies.find((c) => c.name === selectedCompany) ?? null,
@@ -184,151 +182,155 @@ export function ReportsExplorer() {
     return () => window.removeEventListener("keydown", onKey);
   }, [viewerFullscreen]);
 
+  // Reset search when picker closes.
+  React.useEffect(() => {
+    if (!pickerOpen) setQuery("");
+  }, [pickerOpen]);
+
   const currentFileUrl = React.useMemo(() => {
     if (!company || !activeType || !selectedFile) return null;
     return buildFileUrl(company.name, activeType, selectedFile);
   }, [company, activeType, selectedFile]);
 
-  const gridCols = viewerFullscreen
-    ? "lg:grid-cols-1"
-    : companiesCollapsed
-      ? "lg:grid-cols-[52px_1fr]"
-      : "lg:grid-cols-[320px_1fr]";
+  const triggerLabel = company?.name ?? "Select a company";
 
   return (
-    <div className={cn("grid h-full min-h-0 flex-1 gap-4", gridCols)}>
+    <div className="flex h-full min-h-0 flex-col gap-2">
       {!viewerFullscreen && (
-        <Card className="flex h-full min-h-0 flex-col py-0" size="sm">
-          {companiesCollapsed ? (
-            <div className="flex h-full flex-col items-center gap-2 px-1 py-3">
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={() => setCompaniesCollapsed(false)}
-                aria-label="Expand companies"
-                title="Expand companies"
-              >
-                <PanelLeftOpen />
-              </Button>
-              <Separator className="my-1" />
-              <div className="flex flex-col items-center gap-1 text-muted-foreground">
-                <Building2 className="size-4" />
-                <Badge variant="secondary" className="text-[10px]">
-                  {companies.length}
-                </Badge>
-              </div>
-            </div>
-          ) : (
-            <>
-              <div className="flex items-center justify-between gap-2 border-b px-3 py-3">
-                <div className="flex min-w-0 items-center gap-2">
-                  <Building2 className="size-4 shrink-0 text-muted-foreground" />
-                  <span className="font-heading text-sm font-medium">
-                    Companies
-                  </span>
-                  <Badge variant="secondary" className="ml-1">
-                    {companies.length}
-                  </Badge>
-                </div>
-                <div className="flex shrink-0 items-center gap-0.5">
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border bg-card px-3 py-1.5 shadow-sm ring-1 ring-foreground/10 backdrop-blur supports-[backdrop-filter]:bg-card/95">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
+              <PopoverTrigger
+                render={
                   <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={() => load()}
-                    disabled={loading}
-                    aria-label="Refresh"
-                    title="Refresh"
-                  >
-                    {loading ? (
-                      <Loader2 className="animate-spin" />
-                    ) : (
-                      <RefreshCw />
-                    )}
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={() => setCompaniesCollapsed(true)}
-                    aria-label="Minimize companies"
-                    title="Minimize"
-                  >
-                    <PanelLeftClose />
-                  </Button>
-                </div>
-              </div>
-              <div className="px-3 pt-3">
-                <div className="relative">
-                  <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    placeholder="Search companies..."
-                    className="pl-8"
-                    aria-label="Search companies"
+                    variant="outline"
+                    size="sm"
+                    className="h-9 min-w-0 max-w-[320px] justify-between gap-2 font-normal"
+                    aria-label="Choose company"
                   />
+                }
+              >
+                <span className="flex min-w-0 items-center gap-2">
+                  <Building2 className="size-4 shrink-0 text-muted-foreground" />
+                  <span className="truncate text-sm" title={triggerLabel}>
+                    {triggerLabel}
+                  </span>
+                </span>
+                <ChevronsUpDown className="size-3.5 shrink-0 text-muted-foreground" />
+              </PopoverTrigger>
+              <PopoverContent
+                align="start"
+                sideOffset={6}
+                className="w-(--anchor-width) min-w-[280px] max-w-[360px] p-0"
+              >
+                <div className="border-b p-2">
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      autoFocus
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value)}
+                      placeholder="Search companies..."
+                      className="h-9 pl-8"
+                      aria-label="Search companies"
+                    />
+                  </div>
                 </div>
-              </div>
-              <ScrollArea className="mt-2 min-h-0 flex-1">
-                <ul className="flex flex-col gap-0.5 px-2 pb-3">
-                  {loading && companies.length === 0 ? (
-                    <li className="px-2 py-6 text-center text-xs text-muted-foreground">
-                      Loading companies...
-                    </li>
-                  ) : null}
-                  {error ? (
-                    <li className="px-2 py-3 text-xs text-destructive">
-                      {error}
-                    </li>
-                  ) : null}
-                  {!loading && filteredCompanies.length === 0 && !error ? (
-                    <li className="px-2 py-6 text-center text-xs text-muted-foreground">
-                      No companies match &quot;{query}&quot;.
-                    </li>
-                  ) : null}
-                  {filteredCompanies.map((c) => {
-                    const isActive = c.name === selectedCompany;
-                    return (
-                      <li key={c.name}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSelectedCompany(c.name);
-                            setActiveType(null);
-                            setSelectedFile(null);
-                          }}
-                          className={cn(
-                            "group flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors",
-                            "hover:bg-muted",
-                            isActive && "bg-muted text-foreground",
-                          )}
-                        >
-                          <Folder
-                            className={cn(
-                              "size-4 shrink-0 text-muted-foreground",
-                              isActive && "text-foreground",
-                            )}
-                          />
-                          <span className="flex-1 truncate" title={c.name}>
-                            {c.name}
-                          </span>
-                          <Badge
-                            variant={isActive ? "default" : "secondary"}
-                            className="text-[10px]"
-                          >
-                            {c.totalReports}
-                          </Badge>
-                        </button>
+                <ScrollArea className="max-h-[320px]">
+                  <ul className="flex flex-col gap-0.5 p-1">
+                    {loading && companies.length === 0 ? (
+                      <li className="px-2 py-6 text-center text-xs text-muted-foreground">
+                        Loading companies...
                       </li>
-                    );
-                  })}
-                </ul>
-              </ScrollArea>
-            </>
-          )}
-        </Card>
+                    ) : null}
+                    {error ? (
+                      <li className="px-2 py-3 text-xs text-destructive">
+                        {error}
+                      </li>
+                    ) : null}
+                    {!loading && filteredCompanies.length === 0 && !error ? (
+                      <li className="px-2 py-6 text-center text-xs text-muted-foreground">
+                        {companies.length === 0
+                          ? "No report companies yet."
+                          : `No companies match "${query}".`}
+                      </li>
+                    ) : null}
+                    {filteredCompanies.map((c) => {
+                      const isActive = c.name === selectedCompany;
+                      return (
+                        <li key={c.name}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedCompany(c.name);
+                              setActiveType(null);
+                              setSelectedFile(null);
+                              setPickerOpen(false);
+                            }}
+                            className={cn(
+                              "group flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors",
+                              "hover:bg-muted",
+                              isActive && "bg-muted text-foreground",
+                            )}
+                          >
+                            <Folder
+                              className={cn(
+                                "size-4 shrink-0 text-muted-foreground",
+                                isActive && "text-foreground",
+                              )}
+                            />
+                            <span className="flex-1 truncate" title={c.name}>
+                              {c.name}
+                            </span>
+                            <Badge
+                              variant={isActive ? "default" : "secondary"}
+                              className="text-[10px]"
+                            >
+                              {c.totalReports}
+                            </Badge>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </ScrollArea>
+              </PopoverContent>
+            </Popover>
+            <Badge
+              variant="secondary"
+              className="hidden text-[10px] sm:inline-flex"
+            >
+              {companies.length} total
+            </Badge>
+            {company ? (
+              <span className="hidden truncate text-[11px] text-muted-foreground lg:inline">
+                {company.totalReports} report
+                {company.totalReports === 1 ? "" : "s"} across{" "}
+                {reportTypeNames.length} type
+                {reportTypeNames.length === 1 ? "" : "s"}
+              </span>
+            ) : null}
+          </div>
+          <div className="flex shrink-0 items-center gap-0.5">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => load()}
+              disabled={loading}
+              aria-label="Refresh"
+              title="Refresh"
+            >
+              {loading ? (
+                <Loader2 className="animate-spin" />
+              ) : (
+                <RefreshCw />
+              )}
+            </Button>
+          </div>
+        </div>
       )}
 
-      <Card className="flex h-full min-h-0 flex-col py-0" size="sm">
+      <Card className="flex h-full min-h-0 flex-1 flex-col py-0" size="sm">
         {!company ? (
           <div className="flex h-full flex-1 items-center justify-center p-10 text-center">
             <div className="max-w-sm">
@@ -337,240 +339,223 @@ export function ReportsExplorer() {
                 Select a company
               </h3>
               <p className="mt-1 text-sm text-muted-foreground">
-                Choose a company from the list to browse its annual and
-                quarterly reports.
+                Use the company picker above to browse annual and quarterly
+                reports.
               </p>
             </div>
           </div>
         ) : (
-          <div className="flex h-full min-h-0 flex-1 flex-col">
-            {!viewerFullscreen && (
-              <CardHeader className="border-b py-3">
-                <CardTitle className="flex items-center gap-2">
-                  <Building2 className="size-4 text-muted-foreground" />
-                  {company.name}
-                </CardTitle>
-                <CardDescription>
-                  {company.totalReports} report
-                  {company.totalReports === 1 ? "" : "s"} across{" "}
-                  {reportTypeNames.length} type
-                  {reportTypeNames.length === 1 ? "" : "s"}
-                </CardDescription>
-              </CardHeader>
+          <CardContent
+            className={cn(
+              "flex min-h-0 flex-1 flex-col gap-3",
+              viewerFullscreen ? "p-0" : "py-3",
             )}
+          >
+            {reportTypeNames.length === 0 ? (
+              <div className="flex flex-1 items-center justify-center p-6 text-sm text-muted-foreground">
+                No reports available for this company.
+              </div>
+            ) : (
+              <Tabs
+                value={activeType ?? reportTypeNames[0]}
+                onValueChange={(v) => {
+                  setActiveType(v);
+                  setSelectedFile(null);
+                }}
+                className="flex min-h-0 flex-1 flex-col gap-3"
+              >
+                {!viewerFullscreen && (
+                  <TabsList>
+                    {reportTypeNames.map((t) => (
+                      <TabsTrigger key={t} value={t}>
+                        {t}
+                        <Badge
+                          variant="secondary"
+                          className="ml-1 text-[10px]"
+                        >
+                          {company.reportTypes[t].length}
+                        </Badge>
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+                )}
 
-            <CardContent
-              className={cn(
-                "flex min-h-0 flex-1 flex-col gap-3",
-                viewerFullscreen ? "p-0" : "py-3",
-              )}
-            >
-              {reportTypeNames.length === 0 ? (
-                <div className="flex flex-1 items-center justify-center p-6 text-sm text-muted-foreground">
-                  No reports available for this company.
-                </div>
-              ) : (
-                <Tabs
-                  value={activeType ?? reportTypeNames[0]}
-                  onValueChange={(v) => {
-                    setActiveType(v);
-                    setSelectedFile(null);
-                  }}
-                  className="flex min-h-0 flex-1 flex-col gap-3"
-                >
-                  {!viewerFullscreen && (
-                    <TabsList>
-                      {reportTypeNames.map((t) => (
-                        <TabsTrigger key={t} value={t}>
-                          {t}
-                          <Badge
-                            variant="secondary"
-                            className="ml-1 text-[10px]"
-                          >
-                            {company.reportTypes[t].length}
-                          </Badge>
-                        </TabsTrigger>
-                      ))}
-                    </TabsList>
-                  )}
+                {reportTypeNames.map((t) => (
+                  <TabsContent
+                    key={t}
+                    value={t}
+                    className={cn(
+                      "flex min-h-0 flex-1 flex-col gap-3",
+                      !viewerFullscreen && "lg:flex-row",
+                    )}
+                  >
+                    {!viewerFullscreen && (
+                      <Card
+                        size="sm"
+                        className="flex h-full min-h-0 w-full flex-col py-0 lg:max-w-xs"
+                      >
+                        <div className="border-b px-3 py-2 text-xs font-medium text-muted-foreground">
+                          {t} reports
+                        </div>
+                        <ScrollArea className="min-h-0 flex-1">
+                          <ul className="flex flex-col gap-1 p-2">
+                            {(company.reportTypes[t] ?? []).map((file) => {
+                              const isActive =
+                                activeType === t &&
+                                selectedFile === file.name;
+                              return (
+                                <li key={file.name}>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setActiveType(t);
+                                      setSelectedFile(file.name);
+                                    }}
+                                    className={cn(
+                                      "flex w-full items-start gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors",
+                                      "hover:bg-muted",
+                                      isActive &&
+                                        "bg-muted text-foreground",
+                                    )}
+                                  >
+                                    <FileText className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                                    <div className="min-w-0 flex-1">
+                                      <div
+                                        className="truncate text-sm"
+                                        title={file.name}
+                                      >
+                                        {file.name}
+                                      </div>
+                                      <div className="mt-0.5 flex items-center gap-2 text-[11px] text-muted-foreground">
+                                        <span>{formatBytes(file.size)}</span>
+                                        <span aria-hidden="true">·</span>
+                                        <span>
+                                          {formatDate(file.modifiedAt)}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  </button>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        </ScrollArea>
+                      </Card>
+                    )}
 
-                  {reportTypeNames.map((t) => (
-                    <TabsContent
-                      key={t}
-                      value={t}
+                    <div
                       className={cn(
-                        "flex min-h-0 flex-1 flex-col gap-3",
-                        !viewerFullscreen && "lg:flex-row",
+                        "flex h-full min-h-0 flex-1 flex-col overflow-hidden border bg-muted/30",
+                        viewerFullscreen ? "rounded-none" : "rounded-xl",
                       )}
                     >
-                      {!viewerFullscreen && (
-                        <Card
-                          size="sm"
-                          className="flex h-full min-h-0 w-full flex-col py-0 lg:max-w-xs"
-                        >
-                          <div className="border-b px-3 py-2 text-xs font-medium text-muted-foreground">
-                            {t} reports
-                          </div>
-                          <ScrollArea className="min-h-0 flex-1">
-                            <ul className="flex flex-col gap-1 p-2">
-                              {(company.reportTypes[t] ?? []).map((file) => {
-                                const isActive =
-                                  activeType === t &&
-                                  selectedFile === file.name;
-                                return (
-                                  <li key={file.name}>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setActiveType(t);
-                                        setSelectedFile(file.name);
-                                      }}
-                                      className={cn(
-                                        "flex w-full items-start gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors",
-                                        "hover:bg-muted",
-                                        isActive &&
-                                          "bg-muted text-foreground",
-                                      )}
-                                    >
-                                      <FileText className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-                                      <div className="min-w-0 flex-1">
-                                        <div
-                                          className="truncate text-sm"
-                                          title={file.name}
-                                        >
-                                          {file.name}
-                                        </div>
-                                        <div className="mt-0.5 flex items-center gap-2 text-[11px] text-muted-foreground">
-                                          <span>{formatBytes(file.size)}</span>
-                                          <span aria-hidden="true">·</span>
-                                          <span>
-                                            {formatDate(file.modifiedAt)}
-                                          </span>
-                                        </div>
-                                      </div>
-                                    </button>
-                                  </li>
-                                );
-                              })}
-                            </ul>
-                          </ScrollArea>
-                        </Card>
-                      )}
-
-                      <div
-                        className={cn(
-                          "flex h-full min-h-0 flex-1 flex-col overflow-hidden border bg-muted/30",
-                          viewerFullscreen ? "rounded-none" : "rounded-xl",
-                        )}
-                      >
-                        {selectedFile && currentFileUrl ? (
-                          <>
-                            <div className="flex items-center justify-between gap-2 border-b bg-card px-3 py-2">
-                              <div className="min-w-0">
-                                <div
-                                  className="truncate text-sm font-medium"
-                                  title={selectedFile}
-                                >
-                                  {selectedFile}
-                                </div>
-                                <div className="text-[11px] text-muted-foreground">
-                                  {company.name} · {activeType}
-                                </div>
-                              </div>
-                              <div className="flex shrink-0 items-center gap-1">
-                                <Button
-                                  variant={
-                                    viewerFullscreen ? "default" : "ghost"
-                                  }
-                                  size="icon-sm"
-                                  onClick={() =>
-                                    setViewerFullscreen((v) => !v)
-                                  }
-                                  aria-label={
-                                    viewerFullscreen
-                                      ? "Exit fullscreen"
-                                      : "View fullscreen"
-                                  }
-                                  title={
-                                    viewerFullscreen
-                                      ? "Exit fullscreen (Esc)"
-                                      : "View fullscreen"
-                                  }
-                                >
-                                  {viewerFullscreen ? (
-                                    <Minimize2 />
-                                  ) : (
-                                    <Maximize2 />
-                                  )}
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="icon-sm"
-                                  aria-label="Open in new tab"
-                                  title="Open in new tab"
-                                  nativeButton={false}
-                                  render={
-                                    <a
-                                      href={currentFileUrl}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                    />
-                                  }
-                                >
-                                  <ExternalLink />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="icon-sm"
-                                  aria-label="Download"
-                                  title="Download"
-                                  nativeButton={false}
-                                  render={
-                                    <a
-                                      href={currentFileUrl + "&download=1"}
-                                    />
-                                  }
-                                >
-                                  <Download />
-                                </Button>
-                              </div>
-                            </div>
-                            <Separator />
-                            <div className="min-h-0 flex-1">
-                              <object
-                                data={currentFileUrl}
-                                type="application/pdf"
-                                className="block h-full w-full bg-background"
+                      {selectedFile && currentFileUrl ? (
+                        <>
+                          <div className="flex items-center justify-between gap-2 border-b bg-card px-3 py-2">
+                            <div className="min-w-0">
+                              <div
+                                className="truncate text-sm font-medium"
+                                title={selectedFile}
                               >
-                                <iframe
-                                  src={currentFileUrl}
-                                  title={selectedFile}
-                                  className="h-full w-full"
-                                />
-                              </object>
+                                {selectedFile}
+                              </div>
+                              <div className="text-[11px] text-muted-foreground">
+                                {company.name} · {activeType}
+                              </div>
                             </div>
-                          </>
-                        ) : (
-                          <div className="flex h-full flex-1 items-center justify-center p-10 text-center">
-                            <div className="max-w-sm">
-                              <FileText className="mx-auto size-8 text-muted-foreground" />
-                              <h3 className="mt-3 font-heading text-base font-medium">
-                                Select a report
-                              </h3>
-                              <p className="mt-1 text-sm text-muted-foreground">
-                                Pick a {t.toLowerCase()} report from the list
-                                to preview it here.
-                              </p>
+                            <div className="flex shrink-0 items-center gap-1">
+                              <Button
+                                variant={
+                                  viewerFullscreen ? "default" : "ghost"
+                                }
+                                size="icon-sm"
+                                onClick={() =>
+                                  setViewerFullscreen((v) => !v)
+                                }
+                                aria-label={
+                                  viewerFullscreen
+                                    ? "Exit fullscreen"
+                                    : "View fullscreen"
+                                }
+                                title={
+                                  viewerFullscreen
+                                    ? "Exit fullscreen (Esc)"
+                                    : "View fullscreen"
+                                }
+                              >
+                                {viewerFullscreen ? (
+                                  <Minimize2 />
+                                ) : (
+                                  <Maximize2 />
+                                )}
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                aria-label="Open in new tab"
+                                title="Open in new tab"
+                                nativeButton={false}
+                                render={
+                                  <a
+                                    href={currentFileUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                  />
+                                }
+                              >
+                                <ExternalLink />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                aria-label="Download"
+                                title="Download"
+                                nativeButton={false}
+                                render={
+                                  <a
+                                    href={currentFileUrl + "&download=1"}
+                                  />
+                                }
+                              >
+                                <Download />
+                              </Button>
                             </div>
                           </div>
-                        )}
-                      </div>
-                    </TabsContent>
-                  ))}
-                </Tabs>
-              )}
-            </CardContent>
-          </div>
+                          <Separator />
+                          <div className="min-h-0 flex-1">
+                            <object
+                              data={currentFileUrl}
+                              type="application/pdf"
+                              className="block h-full w-full bg-background"
+                            >
+                              <iframe
+                                src={currentFileUrl}
+                                title={selectedFile}
+                                className="h-full w-full"
+                              />
+                            </object>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="flex h-full flex-1 items-center justify-center p-10 text-center">
+                          <div className="max-w-sm">
+                            <FileText className="mx-auto size-8 text-muted-foreground" />
+                            <h3 className="mt-3 font-heading text-base font-medium">
+                              Select a report
+                            </h3>
+                            <p className="mt-1 text-sm text-muted-foreground">
+                              Pick a {t.toLowerCase()} report from the list to
+                              preview it here.
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </TabsContent>
+                ))}
+              </Tabs>
+            )}
+          </CardContent>
         )}
       </Card>
     </div>

@@ -90,47 +90,47 @@ const statusStyle: Record<
 
 const agents: AiAgent[] = [
   {
-    name: "Atlas",
+    name: "Robin",
     role: "Extraction Agent",
     task: "Parses financial statements from uploaded PDF and image reports.",
     avatarSrc: "https://api.dicebear.com/8.x/bottts/svg?seed=atlas",
-    fallback: "AT",
+    fallback: "RB",
     status: "Online",
     accent: "from-emerald-500/30 via-emerald-500/10 to-transparent",
   },
   {
-    name: "Nova",
+    name: "Marian",
     role: "Validation Agent",
     task: "Cross-checks extracted tables for numeric consistency and missing rows.",
     avatarSrc: "https://api.dicebear.com/8.x/bottts/svg?seed=nova",
-    fallback: "NV",
+    fallback: "MR",
     status: "Working",
     accent: "from-sky-500/30 via-sky-500/10 to-transparent",
   },
   {
-    name: "Echo",
+    name: "John",
     role: "Comparison Agent",
     task: "Compares extracted output against the source report image side by side.",
     avatarSrc: "https://api.dicebear.com/8.x/bottts/svg?seed=echo",
-    fallback: "EC",
+    fallback: "JN",
     status: "Online",
     accent: "from-violet-500/30 via-violet-500/10 to-transparent",
   },
   {
-    name: "Sage",
+    name: "Scarlet",
     role: "Configuration Agent",
     task: "Tunes the extraction model, prompts and runtime options for each run.",
     avatarSrc: "https://api.dicebear.com/8.x/bottts/svg?seed=sage",
-    fallback: "SG",
+    fallback: "SC",
     status: "Idle",
     accent: "from-amber-500/30 via-amber-500/10 to-transparent",
   },
   {
-    name: "Forge",
+    name: "Tuck",
     role: "Indexing Agent",
     task: "Builds a searchable index over historical extracted statements.",
     avatarSrc: "https://api.dicebear.com/8.x/bottts/svg?seed=forge",
-    fallback: "FG",
+    fallback: "TC",
     status: "Offline",
     accent: "from-zinc-500/20 via-zinc-500/5 to-transparent",
   },
@@ -438,7 +438,7 @@ export default function AiPage() {
                       agent={agent}
                       index={idx}
                       onActivate={
-                        agent.name === "Sage"
+                        agent.name === "Scarlet"
                           ? () => setSageOpen(true)
                           : undefined
                       }
