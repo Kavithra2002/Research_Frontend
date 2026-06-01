@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
-import fs from "node:fs/promises";
-import path from "node:path";
+
+import {
+  getLocalRoot,
+  isR2Storage,
+  isSafeSegment,
+  listDirectory,
+} from "@/lib/storage";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -19,78 +24,103 @@ export type UploadedReport = {
 
 const ALLOWED_EXTENSIONS = new Set([".pdf"]);
 
+/** Primary R2/local prefix for newly scanned reports. */
+const UPDATED_REPORTS_ROOT = "updated_reports" as const;
+/** Legacy prefix (local dev / older uploads). */
+const LEGACY_ROOT = "newly_uploaded_report" as const;
+
 function naturalCompare(a: string, b: string) {
   return a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
 }
 
-function getRoot() {
-  const fromEnv = process.env.NEWLY_UPLOADED_DIR;
-  if (fromEnv && fromEnv.trim().length > 0) {
-    return path.resolve(fromEnv);
-  }
-  return path.resolve(process.cwd(), "..", "backend", "newly_uploaded_report");
-}
-
-async function readDirSafe(dir: string) {
-  try {
-    return await fs.readdir(dir, { withFileTypes: true });
-  } catch {
-    return [];
-  }
-}
-
-export async function GET() {
-  const root = getRoot();
-  await fs.mkdir(root, { recursive: true }).catch(() => undefined);
-
-  const companyEntries = await readDirSafe(root);
+async function listFromRoot(
+  root: typeof UPDATED_REPORTS_ROOT | typeof LEGACY_ROOT,
+): Promise<UploadedReport[]> {
   const reports: UploadedReport[] = [];
+  const companyLevel = await listDirectory(root);
 
-  for (const companyEntry of companyEntries) {
-    if (!companyEntry.isDirectory()) continue;
+  for (const company of companyLevel.directories) {
+    if (!isSafeSegment(company)) continue;
+    const typeLevel = await listDirectory(root, company);
 
-    const companyDir = path.join(root, companyEntry.name);
-    const typeEntries = await readDirSafe(companyDir);
-
-    for (const typeEntry of typeEntries) {
-      if (!typeEntry.isDirectory()) continue;
-
-      const typeDir = path.join(companyDir, typeEntry.name);
-      const fileEntries = await readDirSafe(typeDir);
+    for (const reportType of typeLevel.directories) {
+      if (!isSafeSegment(reportType)) continue;
+      const filesLevel = await listDirectory(root, company, reportType);
       const files: UploadedFile[] = [];
 
-      for (const fileEntry of fileEntries) {
-        if (!fileEntry.isFile()) continue;
-        const ext = path.extname(fileEntry.name).toLowerCase();
+      for (const f of filesLevel.files) {
+        const ext = f.name.slice(f.name.lastIndexOf(".")).toLowerCase();
         if (!ALLOWED_EXTENSIONS.has(ext)) continue;
-
-        const stat = await fs
-          .stat(path.join(typeDir, fileEntry.name))
-          .catch(() => null);
-        if (!stat) continue;
-
         files.push({
-          name: fileEntry.name,
-          size: stat.size,
-          modifiedAt: stat.mtime.toISOString(),
+          name: f.name,
+          size: f.size,
+          modifiedAt: f.modifiedAt,
         });
       }
 
       if (files.length === 0) continue;
       files.sort((a, b) => b.modifiedAt.localeCompare(a.modifiedAt));
-      reports.push({
-        company: companyEntry.name,
-        reportType: typeEntry.name,
-        files,
-      });
+      reports.push({ company, reportType, files });
     }
   }
 
-  reports.sort((a, b) => {
+  return reports;
+}
+
+function mergeReports(
+  primary: UploadedReport[],
+  legacy: UploadedReport[],
+): UploadedReport[] {
+  const map = new Map<string, UploadedReport>();
+
+  const key = (r: UploadedReport) => `${r.company}\0${r.reportType}`;
+
+  for (const r of [...primary, ...legacy]) {
+    const k = key(r);
+    const existing = map.get(k);
+    if (!existing) {
+      map.set(k, { ...r, files: [...r.files] });
+      continue;
+    }
+    const seen = new Set(existing.files.map((f) => f.name));
+    for (const f of r.files) {
+      if (!seen.has(f.name)) {
+        existing.files.push(f);
+        seen.add(f.name);
+      }
+    }
+    existing.files.sort((a, b) => b.modifiedAt.localeCompare(a.modifiedAt));
+  }
+
+  const merged = Array.from(map.values());
+  merged.sort((a, b) => {
     const byCompany = naturalCompare(a.company, b.company);
     if (byCompany !== 0) return byCompany;
     return naturalCompare(a.reportType, b.reportType);
   });
+  return merged;
+}
 
-  return NextResponse.json({ root, reports });
+export async function GET() {
+  try {
+    const [updated, legacy] = await Promise.all([
+      listFromRoot(UPDATED_REPORTS_ROOT),
+      listFromRoot(LEGACY_ROOT),
+    ]);
+    const reports = mergeReports(updated, legacy);
+
+    const root = isR2Storage()
+      ? `r2://${process.env.R2_BUCKET}/${UPDATED_REPORTS_ROOT}`
+      : getLocalRoot(UPDATED_REPORTS_ROOT);
+
+    return NextResponse.json({ root, reports });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error: error instanceof Error ? error.message : String(error),
+        reports: [],
+      },
+      { status: 500 },
+    );
+  }
 }

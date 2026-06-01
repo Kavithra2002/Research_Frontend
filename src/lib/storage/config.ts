@@ -3,6 +3,7 @@ import path from "node:path";
 export type StorageRoot =
   | "reports"
   | "newly_uploaded_report"
+  | "updated_reports"
   | "testing"
   | "company";
 
@@ -31,6 +32,11 @@ export function getLocalRoot(root: StorageRoot): string {
       return resolveEnvPath(
         "NEWLY_UPLOADED_DIR",
         path.join(scriptRoot, "newly_uploaded_report"),
+      );
+    case "updated_reports":
+      return resolveEnvPath(
+        "UPDATED_REPORTS_DIR",
+        path.join(scriptRoot, "updated_reports"),
       );
     case "testing":
       return resolveEnvPath(

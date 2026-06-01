@@ -443,7 +443,7 @@ export function NewlyUpdatedPanel() {
                 Scan the CSE listing for reports uploaded today and download
                 any new annual, quarterly or other filings into{" "}
                 <code className="rounded bg-muted px-1 py-0.5 text-[11px]">
-                  newly_uploaded_report/
+                  updated_reports/
                 </code>
                 . The scan keeps running in the background even if you leave
                 this page.

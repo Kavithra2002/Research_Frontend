@@ -6,6 +6,9 @@ import { isSafeSegment, readBytes, statFile } from "@/lib/storage";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+const UPDATED_REPORTS_ROOT = "updated_reports" as const;
+const LEGACY_ROOT = "newly_uploaded_report" as const;
+
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const company = searchParams.get("company");
@@ -35,14 +38,19 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const stat = await statFile("newly_uploaded_report", company, type, file);
+  let stat = await statFile(UPDATED_REPORTS_ROOT, company, type, file);
+  let root = UPDATED_REPORTS_ROOT;
+  if (!stat) {
+    stat = await statFile(LEGACY_ROOT, company, type, file);
+    root = LEGACY_ROOT;
+  }
   if (!stat) {
     return NextResponse.json({ error: "File not found" }, { status: 404 });
   }
 
   let body: Uint8Array;
   try {
-    body = await readBytes("newly_uploaded_report", company, type, file);
+    body = await readBytes(root, company, type, file);
   } catch {
     return NextResponse.json({ error: "File not found" }, { status: 404 });
   }
