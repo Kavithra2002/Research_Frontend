@@ -1,5 +1,7 @@
 "use client";
 
+import { getPythonJobUrl } from "@/lib/python-jobs";
+
 export type ProgressEvent =
   | { type: "start"; targetDate: string; outDir: string }
   | { type: "scan-start"; total: number }
@@ -184,13 +186,14 @@ async function connect(method: "GET" | "POST", body?: Record<string, unknown>) {
   store.abortCtrl = ctrl;
 
   try {
-    const res = await fetch("/api/system/extract", {
+    const res = await fetch(getPythonJobUrl("/api/system/extract"), {
       method,
       headers:
         method === "POST" ? { "Content-Type": "application/json" } : undefined,
       body: method === "POST" ? JSON.stringify(body ?? {}) : undefined,
       signal: ctrl.signal,
       cache: "no-store",
+      credentials: "include",
     });
 
     if (!res.ok || !res.body) {
@@ -288,9 +291,10 @@ export async function runScan(opts?: {
 
 export async function cancelScan() {
   try {
-    await fetch("/api/system/extract", {
+    await fetch(getPythonJobUrl("/api/system/extract"), {
       method: "DELETE",
       cache: "no-store",
+      credentials: "include",
     });
   } catch {
     // Ignore - the server-side close will propagate via the active stream.

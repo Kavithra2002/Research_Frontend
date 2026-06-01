@@ -1,6 +1,7 @@
 "use client";
 
 import type { SelectionItem } from "@/lib/report-selections";
+import { getPythonJobUrl } from "@/lib/python-jobs";
 
 // --------------------------------------------------------------------------
 // Wire format (mirrors backend/Extract_selected_reports.py)
@@ -401,7 +402,7 @@ async function connect(method: "GET" | "POST", body?: Record<string, unknown>) {
   store.abortCtrl = ctrl;
 
   try {
-    const res = await fetch("/api/system/update", {
+    const res = await fetch(getPythonJobUrl("/api/system/update"), {
       method,
       headers:
         method === "POST"
@@ -410,6 +411,7 @@ async function connect(method: "GET" | "POST", body?: Record<string, unknown>) {
       body: method === "POST" ? JSON.stringify(body ?? {}) : undefined,
       signal: ctrl.signal,
       cache: "no-store",
+      credentials: "include",
     });
 
     if (!res.ok || !res.body) {
@@ -527,9 +529,10 @@ export async function runUpdate(opts: RunUpdateOptions) {
 
 export async function cancelUpdate() {
   try {
-    await fetch("/api/system/update", {
+    await fetch(getPythonJobUrl("/api/system/update"), {
       method: "DELETE",
       cache: "no-store",
+      credentials: "include",
     });
   } catch {
     // The active stream will be closed server-side; the client receives the
