@@ -1,7 +1,7 @@
 "use client";
 
 import type { SelectionItem } from "@/lib/report-selections";
-import { getPythonJobUrl } from "@/lib/python-jobs";
+import { getPythonJobUrl, PYTHON_JOB_FETCH_INIT } from "@/lib/python-jobs";
 
 // --------------------------------------------------------------------------
 // Wire format (mirrors backend/Extract_selected_reports.py)
@@ -403,6 +403,7 @@ async function connect(method: "GET" | "POST", body?: Record<string, unknown>) {
 
   try {
     const res = await fetch(getPythonJobUrl("/api/system/update"), {
+      ...PYTHON_JOB_FETCH_INIT,
       method,
       headers:
         method === "POST"
@@ -410,8 +411,6 @@ async function connect(method: "GET" | "POST", body?: Record<string, unknown>) {
           : undefined,
       body: method === "POST" ? JSON.stringify(body ?? {}) : undefined,
       signal: ctrl.signal,
-      cache: "no-store",
-      credentials: "include",
     });
 
     if (!res.ok || !res.body) {
@@ -462,8 +461,12 @@ async function connect(method: "GET" | "POST", body?: Record<string, unknown>) {
     }
   } catch (e) {
     if ((e as { name?: string }).name === "AbortError") return;
-    const msg = e instanceof Error ? e.message : String(e);
-    setState({ error: msg });
+    const raw = e instanceof Error ? e.message : String(e);
+    const msg =
+      raw === "Failed to fetch"
+        ? "Cannot reach the Render API for extraction. Check NEXT_PUBLIC_API_BASE_URL on Vercel, CORS_ORIGIN on Render (your Vercel URL), and that the backend is not sleeping."
+        : raw;
+    setState({ error: msg, updating: false, message: msg });
     appendLog(`Error: ${msg}`);
   } finally {
     if (store.abortCtrl === ctrl) {
@@ -530,9 +533,8 @@ export async function runUpdate(opts: RunUpdateOptions) {
 export async function cancelUpdate() {
   try {
     await fetch(getPythonJobUrl("/api/system/update"), {
+      ...PYTHON_JOB_FETCH_INIT,
       method: "DELETE",
-      cache: "no-store",
-      credentials: "include",
     });
   } catch {
     // The active stream will be closed server-side; the client receives the

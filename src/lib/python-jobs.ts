@@ -1,9 +1,10 @@
 /**
  * URL for long-running Python NDJSON streams (scan / extract).
  *
- * In production the browser calls Render directly. Proxying through Vercel's
- * `/api/system/*` routes hits serverless timeouts (often 10–60s) while
- * extraction can run for many minutes.
+ * In production the browser calls Render directly (NEXT_PUBLIC_API_BASE_URL).
+ * Proxying through Vercel's `/api/system/*` routes hits serverless timeouts.
+ *
+ * System routes do not use auth cookies — callers must use `credentials: "omit"`.
  */
 export function getPythonJobUrl(apiPath: string): string {
   const normalized = apiPath.startsWith("/") ? apiPath : `/${apiPath}`;
@@ -19,6 +20,11 @@ export function getPythonJobUrl(apiPath: string): string {
   }
 
   const base = apiBase.replace(/\/+$/, "");
-  const suffix = route.replace(/^\/api/, "");
-  return `${base}${suffix}`;
+  return `${base}${route.replace(/^\/api/, "")}`;
 }
+
+/** fetch() options for Python NDJSON streams (no cookies — avoids CORS credential issues). */
+export const PYTHON_JOB_FETCH_INIT = {
+  cache: "no-store" as const,
+  credentials: "omit" as const,
+};
