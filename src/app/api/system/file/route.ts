@@ -39,7 +39,8 @@ export async function GET(request: NextRequest) {
   }
 
   let stat = await statFile(UPDATED_REPORTS_ROOT, company, type, file);
-  let root = UPDATED_REPORTS_ROOT;
+  let root: typeof UPDATED_REPORTS_ROOT | typeof LEGACY_ROOT =
+    UPDATED_REPORTS_ROOT;
   if (!stat) {
     stat = await statFile(LEGACY_ROOT, company, type, file);
     root = LEGACY_ROOT;
