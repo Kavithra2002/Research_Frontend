@@ -22,19 +22,54 @@ import {
 } from "@/components/extracted/extracted-tables-view";
 import { StatementBlock } from "@/components/extracted/extracted-tables-view";
 
+type Period = "Annual" | "Quarterly";
+
+type PeriodSummary = {
+  statements: string[];
+  statementCount: number;
+  tableCount: number;
+  model: string | null;
+  generatedAt: string | null;
+};
+
+type YearNode = {
+  year: number;
+  annual: PeriodSummary | null;
+  quarterly: PeriodSummary | null;
+  availablePeriods: Period[];
+};
+
 type Company = {
   name: string;
   displayName: string;
+  sector?: string | null;
+  sectorDetail?: string | null;
   statements: string[];
   model: string | null;
   generatedAt: string | null;
   totalReports: number;
+  hasAnnual?: boolean;
+  hasQuarterly?: boolean;
+  availablePeriods?: Period[];
+  quarterlyStatements?: string[];
+  quarterlyGeneratedAt?: string | null;
+  quarterlyModel?: string | null;
+  years?: YearNode[];
 };
 
 type ListResponse = {
+  source?: "mongodb" | "filesystem";
   companies?: Company[];
   error?: string;
 };
+
+function periodSummaryFor(
+  yearNode: YearNode | undefined,
+  period: Period,
+): PeriodSummary | null {
+  if (!yearNode) return null;
+  return period === "Quarterly" ? yearNode.quarterly : yearNode.annual;
+}
 
 type DataResponse = {
   results?: Record<string, unknown>;
@@ -64,12 +99,16 @@ function formatDate(iso: string) {
 }
 
 export function ComparisonExplorer() {
+  const [dataSource, setDataSource] = React.useState<
+    "mongodb" | "filesystem" | null
+  >(null);
   const [companies, setCompanies] = React.useState<Company[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [selectedCompany, setSelectedCompany] = React.useState<string | null>(
     null,
   );
+  const [selectedYear, setSelectedYear] = React.useState<number | null>(null);
 
   const [statements, setStatements] = React.useState<ExtractedStatement[]>([]);
   const [capturesByKey, setCapturesByKey] = React.useState<
@@ -78,6 +117,8 @@ export function ComparisonExplorer() {
   const [dataLoading, setDataLoading] = React.useState(false);
   const [dataError, setDataError] = React.useState<string | null>(null);
   const [selectedKey, setSelectedKey] = React.useState<string | null>(null);
+  const [period, setPeriod] = React.useState<Period>("Annual");
+  const [refreshToken, setRefreshToken] = React.useState(0);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -88,6 +129,7 @@ export function ComparisonExplorer() {
       if (!res.ok) {
         throw new Error(data.error ?? `Request failed (${res.status})`);
       }
+      setDataSource(data.source ?? null);
       setCompanies(data.companies ?? []);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -112,6 +154,62 @@ export function ComparisonExplorer() {
     [companies, selectedCompany],
   );
 
+  // When the data is served from MongoDB (extracted from Demo_Data reports),
+  // it is organised per Company → Year → Annual/Quarterly, so a year must be
+  // selected and passed to the data endpoint. Filesystem data has no years.
+  const useMongoTree =
+    dataSource === "mongodb" && (company?.years?.length ?? 0) > 0;
+
+  const yearNode = React.useMemo(() => {
+    if (!company?.years?.length || selectedYear == null) return undefined;
+    return company.years.find((y) => y.year === selectedYear);
+  }, [company, selectedYear]);
+
+  React.useEffect(() => {
+    if (!company?.years?.length) {
+      setSelectedYear(null);
+      return;
+    }
+    const years = company.years.map((y) => y.year);
+    if (selectedYear == null || !years.includes(selectedYear)) {
+      setSelectedYear(years[0] ?? null);
+    }
+  }, [company, selectedYear]);
+
+  const availablePeriods: Period[] = useMongoTree
+    ? yearNode?.availablePeriods ?? []
+    : company?.availablePeriods ?? [];
+  const showPeriodToggle = availablePeriods.length >= 1;
+
+  const effectivePeriod = React.useMemo(() => {
+    if (availablePeriods.length === 0) return period;
+    return availablePeriods.includes(period) ? period : availablePeriods[0];
+  }, [availablePeriods, period]);
+
+  const yearSummary = periodSummaryFor(yearNode, effectivePeriod);
+  const activeStatements = useMongoTree
+    ? yearSummary?.statements ?? []
+    : effectivePeriod === "Quarterly"
+      ? company?.quarterlyStatements ?? []
+      : company?.statements ?? [];
+  const activeModel = useMongoTree
+    ? yearSummary?.model ?? null
+    : effectivePeriod === "Quarterly"
+      ? company?.quarterlyModel ?? company?.model ?? null
+      : company?.model ?? null;
+  const activeGeneratedAt = useMongoTree
+    ? yearSummary?.generatedAt ?? null
+    : effectivePeriod === "Quarterly"
+      ? company?.quarterlyGeneratedAt ?? null
+      : company?.generatedAt ?? null;
+
+  React.useEffect(() => {
+    if (!company) return;
+    if (availablePeriods.length > 0 && !availablePeriods.includes(period)) {
+      setPeriod(availablePeriods[0]);
+    }
+  }, [company, period, availablePeriods]);
+
   React.useEffect(() => {
     if (!selectedCompany) {
       setStatements([]);
@@ -121,13 +219,37 @@ export function ComparisonExplorer() {
       return;
     }
 
+    // For MongoDB-backed data we must wait until a year is resolved, otherwise
+    // the data endpoint would fall back to the (empty) local filesystem.
+    if (useMongoTree && selectedYear == null) {
+      setStatements([]);
+      setCapturesByKey({});
+      return;
+    }
+
     let cancelled = false;
     setDataLoading(true);
     setDataError(null);
 
+    const dataParams = new URLSearchParams({
+      company: selectedCompany,
+      period: effectivePeriod,
+    });
+    if (useMongoTree && selectedYear != null) {
+      dataParams.set("year", String(selectedYear));
+    }
+
+    const captureParams = new URLSearchParams({
+      company: selectedCompany,
+      period: effectivePeriod,
+    });
+    if (selectedYear != null) {
+      captureParams.set("year", String(selectedYear));
+    }
+
     Promise.all([
       fetch(
-        `/api/extracted/data?company=${encodeURIComponent(selectedCompany)}`,
+        `/api/extracted/data?${dataParams.toString()}`,
         { cache: "no-store" },
       ).then(async (res) => {
         const json = (await res.json()) as DataResponse;
@@ -137,7 +259,7 @@ export function ComparisonExplorer() {
         return json;
       }),
       fetch(
-        `/api/extracted/captures?company=${encodeURIComponent(selectedCompany)}`,
+        `/api/extracted/captures?${captureParams.toString()}`,
         { cache: "no-store" },
       ).then(async (res) => {
         const json = (await res.json()) as CapturesResponse;
@@ -172,7 +294,7 @@ export function ComparisonExplorer() {
     return () => {
       cancelled = true;
     };
-  }, [selectedCompany]);
+  }, [selectedCompany, effectivePeriod, useMongoTree, selectedYear, refreshToken]);
 
   const pillItems = React.useMemo(() => {
     const keys = new Set<string>();
@@ -222,17 +344,91 @@ export function ComparisonExplorer() {
           <Badge variant="secondary" className="hidden text-[10px] sm:inline-flex">
             {companies.length} total
           </Badge>
-          {company?.model ? (
+          {company?.sector ? (
+            <Badge
+              variant="outline"
+              className="hidden text-[10px] sm:inline-flex"
+              title={company.sectorDetail ?? undefined}
+            >
+              {company.sector}
+            </Badge>
+          ) : null}
+          {company && useMongoTree && (company.years?.length ?? 0) > 0 ? (
+            <div
+              role="tablist"
+              aria-label="Report year"
+              className="inline-flex items-center gap-0.5 rounded-md border bg-muted/40 p-0.5"
+            >
+              {company.years!.map((y) => {
+                const active = selectedYear === y.year;
+                return (
+                  <button
+                    key={y.year}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    onClick={() => setSelectedYear(y.year)}
+                    className={cn(
+                      "rounded-sm px-2 py-1 text-[11px] font-medium transition-colors",
+                      active
+                        ? "bg-background text-foreground shadow-sm ring-1 ring-foreground/10"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {y.year}
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+          {company && showPeriodToggle ? (
+            <div
+              role="tablist"
+              aria-label="Report period"
+              className="inline-flex items-center gap-0.5 rounded-md border bg-muted/40 p-0.5"
+            >
+              {(["Annual", "Quarterly"] as const).map((p) => {
+                const enabled = availablePeriods.includes(p);
+                const active = effectivePeriod === p;
+                return (
+                  <button
+                    key={p}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    disabled={!enabled}
+                    onClick={() => enabled && setPeriod(p)}
+                    title={
+                      enabled
+                        ? `Show ${p} comparison`
+                        : `${p} extraction not available for this company`
+                    }
+                    className={cn(
+                      "rounded-sm px-2 py-1 text-[11px] font-medium transition-colors",
+                      active
+                        ? "bg-background text-foreground shadow-sm ring-1 ring-foreground/10"
+                        : "text-muted-foreground hover:text-foreground",
+                      !enabled &&
+                        "cursor-not-allowed opacity-40 hover:text-muted-foreground",
+                    )}
+                  >
+                    {p}
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+          {activeModel ? (
             <Badge variant="secondary" className="hidden text-[10px] md:inline-flex">
-              {company.model}
+              {activeModel}
             </Badge>
           ) : null}
           {company ? (
             <span className="hidden truncate text-[11px] text-muted-foreground lg:inline">
-              {company.statements.length} stmt
-              {company.statements.length === 1 ? "" : "s"}
-              {company.generatedAt
-                ? ` · generated ${formatDate(company.generatedAt)}`
+              {activeStatements.length} stmt
+              {activeStatements.length === 1 ? "" : "s"}
+              {activeGeneratedAt
+                ? ` · generated ${formatDate(activeGeneratedAt)}`
                 : null}
             </span>
           ) : null}
@@ -241,7 +437,10 @@ export function ComparisonExplorer() {
           <Button
             variant="ghost"
             size="icon-sm"
-            onClick={() => load()}
+            onClick={() => {
+              void load();
+              setRefreshToken((n) => n + 1);
+            }}
             disabled={loading}
             aria-label="Refresh"
             title="Refresh"

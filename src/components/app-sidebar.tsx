@@ -9,12 +9,15 @@ import {
   FileText,
   GitCompare,
   LayoutDashboard,
+  FlaskConical,
   LifeBuoy,
+  Megaphone,
   Newspaper,
   Settings,
   SlidersHorizontal,
   Sparkles,
   TableProperties,
+  Telescope,
   Users,
 } from "lucide-react";
 
@@ -32,6 +35,7 @@ import {
   SidebarRail,
 } from "@/components/ui/sidebar";
 import { useAuth } from "@/components/auth/auth-provider";
+import { SidebarCredits } from "@/components/sidebar-credits";
 import type { UserRole } from "@/lib/auth";
 
 type NavItem = {
@@ -50,6 +54,7 @@ const mainNav: NavItem[] = [
     roles: ["Admin", "User"],
   },
   { title: "System", url: "/system", icon: Activity, roles: ["Admin"] },
+  { title: "Test Here", url: "/test-here", icon: FlaskConical, roles: ["Admin"] },
   { title: "Reports", url: "/reports", icon: FileText, roles: ["Admin", "User"] },
   { title: "Analytics", url: "/analytics", icon: BarChart3, roles: ["Admin", "User"] },
   {
@@ -62,6 +67,18 @@ const mainNav: NavItem[] = [
     title: "Non Financial Data Section",
     url: "/ai/non-financial",
     icon: Newspaper,
+    roles: ["Admin", "User"],
+  },
+  {
+    title: "Announcement",
+    url: "/announcement",
+    icon: Megaphone,
+    roles: ["Admin", "User"],
+  },
+  {
+    title: "Sector Lens",
+    url: "/sector-lens",
+    icon: Telescope,
     roles: ["Admin", "User"],
   },
 ];
@@ -121,9 +138,10 @@ export function AppSidebar({
               <div className="bg-sidebar-primary text-sidebar-primary-foreground flex aspect-square size-8 items-center justify-center rounded-lg">
                 <LayoutDashboard className="size-4" />
               </div>
-              <div className="grid flex-1 text-left text-sm leading-tight">
-                <span className="truncate font-semibold">Sherwood Technology</span>
-                <span className="truncate text-xs">Research Application</span>
+              <div className="grid flex-1 text-left text-sm leading-none">
+                <span className="truncate font-semibold">Sherwood Technologies</span>
+                <span className="truncate text-[10px] leading-tight">Research Application</span>
+                <span className="truncate text-[10px] leading-tight">for Ambeon Research</span>
               </div>
             </SidebarMenuButton>
           </SidebarMenuItem>
@@ -192,6 +210,7 @@ export function AppSidebar({
         ) : null}
       </SidebarContent>
       <SidebarFooter>
+        {user ? <SidebarCredits /> : null}
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton tooltip="Account" render={<Link href="#" />}>

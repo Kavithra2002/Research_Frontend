@@ -310,11 +310,19 @@ export function ExtractedTablesView({
   loading,
   error,
   emptyMessage,
+  stickyTopClassName = "top-[6.25rem]",
+  pillsSticky = true,
 }: {
   statements: ExtractedStatement[];
   loading?: boolean;
   error?: string | null;
   emptyMessage?: string;
+  /** Tailwind `top-*` class for the sticky statement-pill bar (page mode). */
+  stickyTopClassName?: string;
+  /** When false the pill bar scrolls with content instead of sticking — use
+   *  inside a self-scrolling container where the table header is sticky too,
+   *  so the two sticky bars don't overlap. */
+  pillsSticky?: boolean;
 }) {
   const [selectedKey, setSelectedKey] = React.useState<string | null>(null);
 
@@ -372,7 +380,14 @@ export function ExtractedTablesView({
 
   return (
     <div className="flex min-w-0 flex-col gap-2 p-3">
-      <div className="sticky top-[6.25rem] z-10 -mx-3 w-[calc(100%+1.5rem)] min-w-0 border-b bg-card/95 px-3 pb-2 backdrop-blur supports-[backdrop-filter]:bg-card/80">
+      <div
+        className={cn(
+          "z-20 -mx-3 w-[calc(100%+1.5rem)] min-w-0 border-b bg-card px-3 pb-2",
+          pillsSticky &&
+            "sticky bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80",
+          pillsSticky && stickyTopClassName,
+        )}
+      >
         <StatementTypePills
           items={statements.map((statement) => ({
             key: statement.key,

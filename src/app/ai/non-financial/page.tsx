@@ -20,9 +20,10 @@ import {
 } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { HeaderLiveTicker } from "@/components/live-ticker/header-live-ticker";
 import { AuthStatus } from "@/components/auth/auth-status";
 import { RoleGate } from "@/components/auth/role-gate";
-import { NonFinancialExplorer } from "@/components/ai/non-financial-explorer";
+import { NonFinancialSection } from "@/components/ai/non-financial-section";
 import { Newspaper } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -51,6 +52,7 @@ export default function AiNonFinancialPage() {
                 </BreadcrumbItem>
               </BreadcrumbList>
             </Breadcrumb>
+            <HeaderLiveTicker className="mx-3" />
             <div className="ml-auto flex items-center gap-2">
               <AuthStatus />
               <ThemeToggle />
@@ -74,7 +76,7 @@ export default function AiNonFinancialPage() {
               </CardHeader>
             </Card>
 
-            <NonFinancialExplorer />
+            <NonFinancialSection />
           </main>
         </SidebarInset>
       </SidebarProvider>

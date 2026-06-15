@@ -75,11 +75,6 @@ export function StatementTypePills({
                   {item.tableCount}
                 </Badge>
               ) : null}
-              {item.imageCount != null && item.imageCount > 0 ? (
-                <Badge variant="outline" className="text-[10px]">
-                  {item.imageCount} img
-                </Badge>
-              ) : null}
               {item.hasError ? (
                 <AlertCircle className="size-3 text-amber-500" />
               ) : null}

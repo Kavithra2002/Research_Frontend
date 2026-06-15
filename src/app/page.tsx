@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { HeaderLiveTicker } from "@/components/live-ticker/header-live-ticker";
 import { AuthStatus } from "@/components/auth/auth-status";
 import { RoleGate } from "@/components/auth/role-gate";
 import { ExtractedExplorer } from "@/components/extracted/extracted-explorer";
@@ -40,6 +41,7 @@ export default function Home() {
                 </BreadcrumbItem>
               </BreadcrumbList>
             </Breadcrumb>
+            <HeaderLiveTicker className="mx-3" />
             <div className="ml-auto flex items-center gap-2">
               <AuthStatus />
               <ThemeToggle />

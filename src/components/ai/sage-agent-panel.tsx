@@ -429,7 +429,7 @@ export function SageAgentPanel({ open, onOpenChange }: SageAgentPanelProps) {
               />
               <Avatar size="lg" className="relative ring-2 ring-amber-500/40">
                 <AvatarImage
-                  src="https://api.dicebear.com/8.x/bottts/svg?seed=sage"
+                  src="/img/scarlet-avatar.png"
                   alt="Scarlet"
                 />
                 <AvatarFallback>SC</AvatarFallback>
@@ -1241,7 +1241,7 @@ function AssistantBubble({
     <div className="flex items-start gap-2 animate-fade-rise">
       <Avatar size="sm" className="mt-0.5 shrink-0 ring-1 ring-amber-500/40">
         <AvatarImage
-          src="https://api.dicebear.com/8.x/bottts/svg?seed=sage"
+          src="/img/scarlet-avatar.png"
           alt="Scarlet"
         />
         <AvatarFallback>SC</AvatarFallback>

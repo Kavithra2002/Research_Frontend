@@ -53,7 +53,7 @@ function getScriptDir() {
   if (fromEnv && fromEnv.trim().length > 0) {
     return path.resolve(fromEnv);
   }
-  return path.resolve(process.cwd(), "..", "backend");
+  return path.resolve(process.cwd(), "..", "backend", "scripts");
 }
 
 function pythonCommand() {

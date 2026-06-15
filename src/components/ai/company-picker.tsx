@@ -17,7 +17,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 
 export type CompanyOption = {
@@ -90,9 +89,9 @@ export function CompanyPicker({
       <PopoverContent
         align="start"
         sideOffset={6}
-        className="w-(--anchor-width) min-w-[280px] max-w-[360px] p-0"
+        className="w-(--anchor-width) min-w-[280px] max-w-[360px] overflow-hidden bg-popover p-0"
       >
-        <div className="border-b p-2">
+        <div className="border-b bg-popover p-2">
           <div className="relative">
             <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -105,7 +104,7 @@ export function CompanyPicker({
             />
           </div>
         </div>
-        <ScrollArea className="max-h-[320px]">
+        <div className="max-h-[320px] overflow-y-auto overscroll-contain bg-popover">
           <ul className="flex flex-col gap-0.5 p-1">
             {loading && companies.length === 0 ? (
               <li className="px-2 py-6 text-center text-xs text-muted-foreground">
@@ -174,7 +173,7 @@ export function CompanyPicker({
               );
             })}
           </ul>
-        </ScrollArea>
+        </div>
       </PopoverContent>
     </Popover>
   );

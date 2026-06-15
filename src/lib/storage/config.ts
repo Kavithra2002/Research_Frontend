@@ -5,7 +5,8 @@ export type StorageRoot =
   | "newly_uploaded_report"
   | "updated_reports"
   | "testing"
-  | "company";
+  | "company"
+  | "demo_captures";
 
 export function isR2Storage(): boolean {
   const driver = (process.env.STORAGE_DRIVER ?? "local").trim().toLowerCase();
@@ -45,6 +46,11 @@ export function getLocalRoot(root: StorageRoot): string {
       );
     case "company":
       return resolveEnvPath("COMPANY_DIR", path.join(scriptRoot, "COMPANY"));
+    case "demo_captures":
+      return resolveEnvPath(
+        "DEMO_CAPTURES_DIR",
+        path.join(scriptRoot, "Demo_Data_captures"),
+      );
     default:
       return scriptRoot;
   }

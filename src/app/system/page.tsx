@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { HeaderLiveTicker } from "@/components/live-ticker/header-live-ticker";
 import { AuthStatus } from "@/components/auth/auth-status";
 import { RoleGate } from "@/components/auth/role-gate";
 import { NewlyUpdatedPanel } from "@/components/system/newly-updated-panel";
@@ -25,7 +26,7 @@ export default function SystemPage() {
     <RoleGate allow={["Admin"]}>
       <SidebarProvider>
         <AppSidebar />
-        <SidebarInset>
+        <SidebarInset className="min-h-svh min-w-0 overflow-x-hidden">
           <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4">
             <SidebarTrigger className="-ml-1" />
             <Separator orientation="vertical" className="mr-2 h-4" />
@@ -40,12 +41,13 @@ export default function SystemPage() {
                 </BreadcrumbItem>
               </BreadcrumbList>
             </Breadcrumb>
+            <HeaderLiveTicker className="mx-3" />
             <div className="ml-auto flex items-center gap-2">
               <AuthStatus />
               <ThemeToggle />
             </div>
           </header>
-          <main className="flex flex-1 min-h-0 flex-col p-4">
+          <main className="flex flex-1 min-h-0 min-w-0 flex-col p-4">
             <NewlyUpdatedPanel />
           </main>
         </SidebarInset>

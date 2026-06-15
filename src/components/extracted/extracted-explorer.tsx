@@ -21,7 +21,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 
 import {
@@ -36,6 +35,23 @@ type ReportFile = {
   modifiedAt: string;
 };
 
+type Period = "Annual" | "Quarterly";
+
+type PeriodSummary = {
+  statements: string[];
+  statementCount: number;
+  tableCount: number;
+  model: string | null;
+  generatedAt: string | null;
+};
+
+type YearNode = {
+  year: number;
+  annual: PeriodSummary | null;
+  quarterly: PeriodSummary | null;
+  availablePeriods: Period[];
+};
+
 type Company = {
   name: string;
   displayName: string;
@@ -45,17 +61,34 @@ type Company = {
   hasReports: boolean;
   reportTypes: Record<string, ReportFile[]>;
   totalReports: number;
+  hasAnnual?: boolean;
+  hasQuarterly?: boolean;
+  availablePeriods?: Period[];
+  quarterlyStatements?: string[];
+  quarterlyGeneratedAt?: string | null;
+  quarterlyModel?: string | null;
+  years?: YearNode[];
 };
 
 type ListResponse = {
+  source?: "mongodb" | "filesystem";
   root?: string;
   reportsRoot?: string;
   companies?: Company[];
   error?: string;
 };
 
+function periodSummaryFor(
+  yearNode: YearNode | undefined,
+  period: Period,
+): PeriodSummary | null {
+  if (!yearNode) return null;
+  return period === "Quarterly" ? yearNode.quarterly : yearNode.annual;
+}
+
 type DataResponse = {
   company?: string;
+  period?: Period;
   meta?: unknown;
   results?: Record<string, unknown>;
   error?: string;
@@ -74,6 +107,9 @@ function formatDate(iso: string) {
 }
 
 export function ExtractedExplorer() {
+  const [dataSource, setDataSource] = React.useState<
+    "mongodb" | "filesystem" | null
+  >(null);
   const [companies, setCompanies] = React.useState<Company[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
@@ -81,11 +117,13 @@ export function ExtractedExplorer() {
   const [selectedCompany, setSelectedCompany] = React.useState<string | null>(
     null,
   );
+  const [selectedYear, setSelectedYear] = React.useState<number | null>(null);
   const [pickerOpen, setPickerOpen] = React.useState(false);
 
   const [statements, setStatements] = React.useState<ExtractedStatement[]>([]);
   const [dataLoading, setDataLoading] = React.useState(false);
   const [dataError, setDataError] = React.useState<string | null>(null);
+  const [period, setPeriod] = React.useState<Period>("Annual");
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -96,6 +134,7 @@ export function ExtractedExplorer() {
       if (!res.ok) {
         throw new Error(data.error ?? `Request failed (${res.status})`);
       }
+      setDataSource(data.source ?? null);
       setCompanies(data.companies ?? []);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -129,19 +168,57 @@ export function ExtractedExplorer() {
     [companies, selectedCompany],
   );
 
+  const useMongoTree = dataSource === "mongodb" && (company?.years?.length ?? 0) > 0;
+
+  const yearNode = React.useMemo(() => {
+    if (!company?.years?.length || selectedYear == null) return undefined;
+    return company.years.find((y) => y.year === selectedYear);
+  }, [company, selectedYear]);
+
+  React.useEffect(() => {
+    if (!company?.years?.length) {
+      setSelectedYear(null);
+      return;
+    }
+    const years = company.years.map((y) => y.year);
+    if (selectedYear == null || !years.includes(selectedYear)) {
+      setSelectedYear(years[0] ?? null);
+    }
+  }, [company, selectedYear]);
+
+  React.useEffect(() => {
+    if (!company) return;
+    const available = useMongoTree
+      ? (yearNode?.availablePeriods ?? [])
+      : (company.availablePeriods ?? []);
+    if (available.length === 0) return;
+    if (!available.includes(period)) {
+      setPeriod(available[0]);
+    }
+  }, [company, period, useMongoTree, yearNode]);
+
   React.useEffect(() => {
     if (!selectedCompany) {
       setStatements([]);
       setDataError(null);
       return;
     }
+    if (useMongoTree && selectedYear == null) {
+      setStatements([]);
+      return;
+    }
     let cancelled = false;
     setDataLoading(true);
     setDataError(null);
-    fetch(
-      `/api/extracted/data?company=${encodeURIComponent(selectedCompany)}`,
-      { cache: "no-store" },
-    )
+    const params = new URLSearchParams({
+      company: selectedCompany,
+      period,
+    });
+    if (useMongoTree && selectedYear != null) {
+      params.set("year", String(selectedYear));
+    }
+    const url = `/api/extracted/data?${params.toString()}`;
+    fetch(url, { cache: "no-store" })
       .then(async (res) => {
         const json = (await res.json()) as DataResponse;
         if (!res.ok) {
@@ -165,13 +242,34 @@ export function ExtractedExplorer() {
     return () => {
       cancelled = true;
     };
-  }, [selectedCompany]);
+  }, [selectedCompany, period, useMongoTree, selectedYear]);
 
   React.useEffect(() => {
     if (!pickerOpen) setQuery("");
   }, [pickerOpen]);
 
   const triggerLabel = company?.displayName ?? "Select a company";
+
+  const availablePeriods: Period[] = useMongoTree
+    ? (yearNode?.availablePeriods ?? [])
+    : (company?.availablePeriods ?? []);
+  const showPeriodToggle = availablePeriods.length >= 1;
+  const yearSummary = periodSummaryFor(yearNode, period);
+  const activeStatements = useMongoTree
+    ? (yearSummary?.statements ?? [])
+    : period === "Quarterly"
+      ? (company?.quarterlyStatements ?? [])
+      : (company?.statements ?? []);
+  const activeModel = useMongoTree
+    ? (yearSummary?.model ?? null)
+    : period === "Quarterly"
+      ? (company?.quarterlyModel ?? company?.model ?? null)
+      : (company?.model ?? null);
+  const activeGeneratedAt = useMongoTree
+    ? (yearSummary?.generatedAt ?? null)
+    : period === "Quarterly"
+      ? (company?.quarterlyGeneratedAt ?? null)
+      : (company?.generatedAt ?? null);
 
   return (
     <div className="flex min-w-0 flex-col gap-2">
@@ -199,9 +297,9 @@ export function ExtractedExplorer() {
               <PopoverContent
                 align="start"
                 sideOffset={6}
-                className="w-(--anchor-width) min-w-[280px] max-w-[360px] p-0"
+                className="w-(--anchor-width) min-w-[280px] max-w-[360px] overflow-hidden bg-popover p-0"
               >
-                <div className="border-b p-2">
+                <div className="border-b bg-popover p-2">
                   <div className="relative">
                     <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
                     <Input
@@ -214,7 +312,7 @@ export function ExtractedExplorer() {
                     />
                   </div>
                 </div>
-                <ScrollArea className="max-h-[320px]">
+                <div className="max-h-[320px] overflow-y-auto overscroll-contain bg-popover">
                   <ul className="flex flex-col gap-0.5 p-1">
                     {loading && companies.length === 0 ? (
                       <li className="px-2 py-6 text-center text-xs text-muted-foreground">
@@ -235,6 +333,25 @@ export function ExtractedExplorer() {
                     ) : null}
                     {filteredCompanies.map((c) => {
                       const isActive = c.name === selectedCompany;
+                      const periodTags: Period[] = [];
+                      if (c.hasAnnual) periodTags.push("Annual");
+                      if (c.hasQuarterly) periodTags.push("Quarterly");
+                      // Show whichever statement count is "richer" for the
+                      // pill on the right of each row.
+                      const summaryCount = c.years?.length
+                        ? c.years.reduce(
+                            (max, y) =>
+                              Math.max(
+                                max,
+                                y.annual?.statementCount ?? 0,
+                                y.quarterly?.statementCount ?? 0,
+                              ),
+                            0,
+                          )
+                        : Math.max(
+                            c.statements.length,
+                            c.quarterlyStatements?.length ?? 0,
+                          );
                       return (
                         <li key={c.name}>
                           <button
@@ -262,10 +379,11 @@ export function ExtractedExplorer() {
                               >
                                 {c.displayName}
                               </div>
-                              <div className="mt-0.5 flex items-center gap-1 text-[10px] text-muted-foreground">
+                              <div className="mt-0.5 flex flex-wrap items-center gap-1 text-[10px] text-muted-foreground">
                                 <Sparkles className="size-3" />
-                                {c.statements.length} stmt
-                                {c.statements.length === 1 ? "" : "s"}
+                                {c.years?.length
+                                  ? `${c.years.length} yr${c.years.length === 1 ? "" : "s"}`
+                                  : `${c.statements.length} stmt${c.statements.length === 1 ? "" : "s"}`}
                                 {c.totalReports > 0 ? (
                                   <>
                                     <span aria-hidden="true">·</span>
@@ -275,36 +393,114 @@ export function ExtractedExplorer() {
                                     </span>
                                   </>
                                 ) : null}
+                                {periodTags.map((tag) => (
+                                  <span
+                                    key={tag}
+                                    className={cn(
+                                      "ml-0.5 rounded px-1 text-[9px] font-medium",
+                                      tag === "Quarterly"
+                                        ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                                        : "bg-blue-500/15 text-blue-600 dark:text-blue-400",
+                                    )}
+                                  >
+                                    {tag === "Quarterly" ? "Q" : "A"}
+                                  </span>
+                                ))}
                               </div>
                             </div>
                             <Badge
                               variant={isActive ? "default" : "secondary"}
                               className="text-[10px]"
                             >
-                              {c.statements.length}
+                              {summaryCount}
                             </Badge>
                           </button>
                         </li>
                       );
                     })}
                   </ul>
-                </ScrollArea>
+                </div>
               </PopoverContent>
             </Popover>
             <Badge variant="secondary" className="hidden text-[10px] sm:inline-flex">
               {companies.length} total
             </Badge>
-            {company?.model ? (
+            {company && useMongoTree && (company.years?.length ?? 0) > 0 ? (
+              <div
+                role="tablist"
+                aria-label="Report year"
+                className="inline-flex items-center gap-0.5 rounded-md border bg-muted/40 p-0.5"
+              >
+                {company.years!.map((y) => {
+                  const active = selectedYear === y.year;
+                  return (
+                    <button
+                      key={y.year}
+                      type="button"
+                      role="tab"
+                      aria-selected={active}
+                      onClick={() => setSelectedYear(y.year)}
+                      className={cn(
+                        "rounded-sm px-2 py-1 text-[11px] font-medium transition-colors",
+                        active
+                          ? "bg-background text-foreground shadow-sm ring-1 ring-foreground/10"
+                          : "text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      {y.year}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+            {company && showPeriodToggle ? (
+              <div
+                role="tablist"
+                aria-label="Report period"
+                className="inline-flex items-center gap-0.5 rounded-md border bg-muted/40 p-0.5"
+              >
+                {(["Annual", "Quarterly"] as const).map((p) => {
+                  const enabled = availablePeriods.includes(p);
+                  const active = period === p;
+                  return (
+                    <button
+                      key={p}
+                      type="button"
+                      role="tab"
+                      aria-selected={active}
+                      disabled={!enabled}
+                      onClick={() => enabled && setPeriod(p)}
+                      title={
+                        enabled
+                          ? `Show ${p} statements`
+                          : `${p} extraction not available for this company`
+                      }
+                      className={cn(
+                        "rounded-sm px-2 py-1 text-[11px] font-medium transition-colors",
+                        active
+                          ? "bg-background text-foreground shadow-sm ring-1 ring-foreground/10"
+                          : "text-muted-foreground hover:text-foreground",
+                        !enabled &&
+                          "cursor-not-allowed opacity-40 hover:text-muted-foreground",
+                      )}
+                    >
+                      {p}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+            {activeModel ? (
               <Badge variant="secondary" className="hidden text-[10px] md:inline-flex">
-                {company.model}
+                {activeModel}
               </Badge>
             ) : null}
             {company ? (
               <span className="hidden truncate text-[11px] text-muted-foreground lg:inline">
-                {company.statements.length} stmt
-                {company.statements.length === 1 ? "" : "s"}
-                {company.generatedAt
-                  ? ` · generated ${formatDate(company.generatedAt)}`
+                {activeStatements.length} stmt
+                {activeStatements.length === 1 ? "" : "s"}
+                {activeGeneratedAt
+                  ? ` · generated ${formatDate(activeGeneratedAt)}`
                   : null}
               </span>
             ) : null}

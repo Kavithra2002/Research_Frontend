@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CalendarMenu } from "@/components/calendar-menu";
+import { NotificationBell } from "@/components/notifications/notification-bell";
 import { getDisplayName, getInitials } from "@/lib/auth";
 import { useAuth } from "./auth-provider";
 
@@ -70,6 +71,7 @@ export function AuthStatus() {
           {user.role}
         </Badge>
       </div>
+      <NotificationBell />
       <CalendarMenu />
       <Button
         variant="ghost"

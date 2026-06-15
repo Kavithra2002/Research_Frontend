@@ -48,6 +48,12 @@ export async function api<T = unknown>(
   try {
     res = await fetch(url, init);
   } catch (err) {
+    // A cancelled request throws an AbortError — surface it as-is so callers
+    // can distinguish a user cancellation from a real connectivity failure.
+    if (err instanceof DOMException && err.name === "AbortError") throw err;
+    if (signal?.aborted) {
+      throw new DOMException("The request was aborted.", "AbortError");
+    }
     throw new ApiError(0, "Network error: cannot reach the backend", err);
   }
 

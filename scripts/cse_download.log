@@ -1,0 +1,109 @@
+2026-06-02 18:04:35,250  INFO      CSE Report Downloader  |  Years: 2016 – 2026
+2026-06-02 18:04:35,251  INFO      Output dir: E:\AMBEON\script\backend\Demo_Data
+2026-06-02 18:04:35,251  INFO      ============================================================
+2026-06-02 18:04:35,251  INFO      Company : Dialog Axiata PLC  (DIAL.N0000)
+2026-06-02 18:04:35,251  INFO      ============================================================
+2026-06-02 18:04:35,251  INFO        Fetching Annual Reports list …
+2026-06-02 18:04:35,707  WARNING   POST https://www.cse.lk/api/companyFinancialReport  attempt 1/3  → 404 Client Error:  for url: https://www.cse.lk/api/companyFinancialReport
+2026-06-02 18:04:37,410  WARNING   POST https://www.cse.lk/api/companyFinancialReport  attempt 2/3  → 404 Client Error:  for url: https://www.cse.lk/api/companyFinancialReport
+2026-06-02 18:04:40,528  WARNING   POST https://www.cse.lk/api/companyFinancialReport  attempt 3/3  → 404 Client Error:  for url: https://www.cse.lk/api/companyFinancialReport
+2026-06-02 18:04:40,778  WARNING   GET https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=DIAL.N0000&tab=financials&subTab=annual  attempt 1/3  → 404 Client Error: Not Found for url: https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=DIAL.N0000&tab=financials&subTab=annual
+2026-06-02 18:04:42,368  WARNING   GET https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=DIAL.N0000&tab=financials&subTab=annual  attempt 2/3  → 404 Client Error: Not Found for url: https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=DIAL.N0000&tab=financials&subTab=annual
+2026-06-02 18:04:45,468  WARNING   GET https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=DIAL.N0000&tab=financials&subTab=annual  attempt 3/3  → 404 Client Error: Not Found for url: https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=DIAL.N0000&tab=financials&subTab=annual
+2026-06-02 18:04:45,468  INFO        → 0 reports found (all years)
+2026-06-02 18:04:45,469  WARNING     No Annual Reports found for DIAL.N0000 — skipping.
+2026-06-02 18:04:45,469  INFO        Fetching Quarterly Reports list …
+2026-06-02 18:04:45,548  WARNING   POST https://www.cse.lk/api/companyFinancialReport  attempt 1/3  → 404 Client Error:  for url: https://www.cse.lk/api/companyFinancialReport
+2026-06-02 18:04:47,191  WARNING   POST https://www.cse.lk/api/companyFinancialReport  attempt 2/3  → 404 Client Error:  for url: https://www.cse.lk/api/companyFinancialReport
+2026-06-02 18:04:50,261  WARNING   POST https://www.cse.lk/api/companyFinancialReport  attempt 3/3  → 404 Client Error:  for url: https://www.cse.lk/api/companyFinancialReport
+2026-06-02 18:04:50,332  WARNING   GET https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=DIAL.N0000&tab=financials&subTab=interim  attempt 1/3  → 404 Client Error: Not Found for url: https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=DIAL.N0000&tab=financials&subTab=interim
+2026-06-02 18:04:51,891  WARNING   GET https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=DIAL.N0000&tab=financials&subTab=interim  attempt 2/3  → 404 Client Error: Not Found for url: https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=DIAL.N0000&tab=financials&subTab=interim
+2026-06-02 18:04:54,995  WARNING   GET https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=DIAL.N0000&tab=financials&subTab=interim  attempt 3/3  → 404 Client Error: Not Found for url: https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=DIAL.N0000&tab=financials&subTab=interim
+2026-06-02 18:04:54,996  INFO        → 0 reports found (all years)
+2026-06-02 18:04:54,996  WARNING     No Quarterly Reports found for DIAL.N0000 — skipping.
+2026-06-02 18:04:54,996  INFO      ============================================================
+2026-06-02 18:04:54,996  INFO      Company : John Keells Holdings PLC  (JKH.N0000)
+2026-06-02 18:04:54,996  INFO      ============================================================
+2026-06-02 18:04:54,997  INFO        Fetching Annual Reports list …
+2026-06-02 18:04:55,060  WARNING   POST https://www.cse.lk/api/companyFinancialReport  attempt 1/3  → 404 Client Error:  for url: https://www.cse.lk/api/companyFinancialReport
+2026-06-02 18:04:56,624  WARNING   POST https://www.cse.lk/api/companyFinancialReport  attempt 2/3  → 404 Client Error:  for url: https://www.cse.lk/api/companyFinancialReport
+2026-06-02 18:04:59,708  WARNING   POST https://www.cse.lk/api/companyFinancialReport  attempt 3/3  → 404 Client Error:  for url: https://www.cse.lk/api/companyFinancialReport
+2026-06-02 18:04:59,779  WARNING   GET https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=JKH.N0000&tab=financials&subTab=annual  attempt 1/3  → 404 Client Error: Not Found for url: https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=JKH.N0000&tab=financials&subTab=annual
+2026-06-02 18:05:01,450  WARNING   GET https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=JKH.N0000&tab=financials&subTab=annual  attempt 2/3  → 404 Client Error: Not Found for url: https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=JKH.N0000&tab=financials&subTab=annual
+2026-06-02 18:05:04,541  WARNING   GET https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=JKH.N0000&tab=financials&subTab=annual  attempt 3/3  → 404 Client Error: Not Found for url: https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=JKH.N0000&tab=financials&subTab=annual
+2026-06-02 18:05:04,542  INFO        → 0 reports found (all years)
+2026-06-02 18:05:04,542  WARNING     No Annual Reports found for JKH.N0000 — skipping.
+2026-06-02 18:05:04,542  INFO        Fetching Quarterly Reports list …
+2026-06-02 18:05:04,843  WARNING   POST https://www.cse.lk/api/companyFinancialReport  attempt 1/3  → 404 Client Error:  for url: https://www.cse.lk/api/companyFinancialReport
+2026-06-02 18:05:06,407  WARNING   POST https://www.cse.lk/api/companyFinancialReport  attempt 2/3  → 404 Client Error:  for url: https://www.cse.lk/api/companyFinancialReport
+2026-06-02 18:05:09,511  WARNING   POST https://www.cse.lk/api/companyFinancialReport  attempt 3/3  → 404 Client Error:  for url: https://www.cse.lk/api/companyFinancialReport
+2026-06-02 18:05:09,583  WARNING   GET https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=JKH.N0000&tab=financials&subTab=interim  attempt 1/3  → 404 Client Error: Not Found for url: https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=JKH.N0000&tab=financials&subTab=interim
+2026-06-02 18:05:11,148  WARNING   GET https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=JKH.N0000&tab=financials&subTab=interim  attempt 2/3  → 404 Client Error: Not Found for url: https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=JKH.N0000&tab=financials&subTab=interim
+2026-06-02 18:05:14,217  WARNING   GET https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=JKH.N0000&tab=financials&subTab=interim  attempt 3/3  → 404 Client Error: Not Found for url: https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=JKH.N0000&tab=financials&subTab=interim
+2026-06-02 18:05:14,217  INFO        → 0 reports found (all years)
+2026-06-02 18:05:14,218  WARNING     No Quarterly Reports found for JKH.N0000 — skipping.
+2026-06-02 18:05:14,218  INFO      ============================================================
+2026-06-02 18:05:14,218  INFO      Company : Ceylon Tobacco Company PLC  (CTC.N0000)
+2026-06-02 18:05:14,218  INFO      ============================================================
+2026-06-02 18:05:14,219  INFO        Fetching Annual Reports list …
+2026-06-02 18:05:14,279  WARNING   POST https://www.cse.lk/api/companyFinancialReport  attempt 1/3  → 404 Client Error:  for url: https://www.cse.lk/api/companyFinancialReport
+2026-06-02 18:05:15,838  WARNING   POST https://www.cse.lk/api/companyFinancialReport  attempt 2/3  → 404 Client Error:  for url: https://www.cse.lk/api/companyFinancialReport
+2026-06-02 18:05:18,901  WARNING   POST https://www.cse.lk/api/companyFinancialReport  attempt 3/3  → 404 Client Error:  for url: https://www.cse.lk/api/companyFinancialReport
+2026-06-02 18:05:18,982  WARNING   GET https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=CTC.N0000&tab=financials&subTab=annual  attempt 1/3  → 404 Client Error: Not Found for url: https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=CTC.N0000&tab=financials&subTab=annual
+2026-06-02 18:05:20,547  WARNING   GET https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=CTC.N0000&tab=financials&subTab=annual  attempt 2/3  → 404 Client Error: Not Found for url: https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=CTC.N0000&tab=financials&subTab=annual
+2026-06-02 18:05:23,606  WARNING   GET https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=CTC.N0000&tab=financials&subTab=annual  attempt 3/3  → 404 Client Error: Not Found for url: https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=CTC.N0000&tab=financials&subTab=annual
+2026-06-02 18:05:23,606  INFO        → 0 reports found (all years)
+2026-06-02 18:05:23,606  WARNING     No Annual Reports found for CTC.N0000 — skipping.
+2026-06-02 18:05:23,606  INFO        Fetching Quarterly Reports list …
+2026-06-02 18:05:23,664  WARNING   POST https://www.cse.lk/api/companyFinancialReport  attempt 1/3  → 404 Client Error:  for url: https://www.cse.lk/api/companyFinancialReport
+2026-06-02 18:05:25,222  WARNING   POST https://www.cse.lk/api/companyFinancialReport  attempt 2/3  → 404 Client Error:  for url: https://www.cse.lk/api/companyFinancialReport
+2026-06-02 18:05:28,371  WARNING   POST https://www.cse.lk/api/companyFinancialReport  attempt 3/3  → 404 Client Error:  for url: https://www.cse.lk/api/companyFinancialReport
+2026-06-02 18:05:28,488  WARNING   GET https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=CTC.N0000&tab=financials&subTab=interim  attempt 1/3  → 404 Client Error: Not Found for url: https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=CTC.N0000&tab=financials&subTab=interim
+2026-06-02 18:05:30,097  WARNING   GET https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=CTC.N0000&tab=financials&subTab=interim  attempt 2/3  → 404 Client Error: Not Found for url: https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=CTC.N0000&tab=financials&subTab=interim
+2026-06-02 18:05:33,188  WARNING   GET https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=CTC.N0000&tab=financials&subTab=interim  attempt 3/3  → 404 Client Error: Not Found for url: https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=CTC.N0000&tab=financials&subTab=interim
+2026-06-02 18:05:33,189  INFO        → 0 reports found (all years)
+2026-06-02 18:05:33,189  WARNING     No Quarterly Reports found for CTC.N0000 — skipping.
+2026-06-02 18:05:33,190  INFO      ============================================================
+2026-06-02 18:05:33,190  INFO      Company : Commercial Bank of Ceylon PLC  (COMB.N0000)
+2026-06-02 18:05:33,190  INFO      ============================================================
+2026-06-02 18:05:33,190  INFO        Fetching Annual Reports list …
+2026-06-02 18:05:33,268  WARNING   POST https://www.cse.lk/api/companyFinancialReport  attempt 1/3  → 404 Client Error:  for url: https://www.cse.lk/api/companyFinancialReport
+2026-06-02 18:05:34,842  WARNING   POST https://www.cse.lk/api/companyFinancialReport  attempt 2/3  → 404 Client Error:  for url: https://www.cse.lk/api/companyFinancialReport
+2026-06-02 18:05:37,965  WARNING   POST https://www.cse.lk/api/companyFinancialReport  attempt 3/3  → 404 Client Error:  for url: https://www.cse.lk/api/companyFinancialReport
+2026-06-02 18:05:38,057  WARNING   GET https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=COMB.N0000&tab=financials&subTab=annual  attempt 1/3  → 404 Client Error: Not Found for url: https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=COMB.N0000&tab=financials&subTab=annual
+2026-06-02 18:05:39,615  WARNING   GET https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=COMB.N0000&tab=financials&subTab=annual  attempt 2/3  → 404 Client Error: Not Found for url: https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=COMB.N0000&tab=financials&subTab=annual
+2026-06-02 18:05:42,710  WARNING   GET https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=COMB.N0000&tab=financials&subTab=annual  attempt 3/3  → 404 Client Error: Not Found for url: https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=COMB.N0000&tab=financials&subTab=annual
+2026-06-02 18:05:42,711  INFO        → 0 reports found (all years)
+2026-06-02 18:05:42,711  WARNING     No Annual Reports found for COMB.N0000 — skipping.
+2026-06-02 18:05:42,711  INFO        Fetching Quarterly Reports list …
+2026-06-02 18:05:42,831  WARNING   POST https://www.cse.lk/api/companyFinancialReport  attempt 1/3  → 404 Client Error:  for url: https://www.cse.lk/api/companyFinancialReport
+2026-06-02 18:05:44,408  WARNING   POST https://www.cse.lk/api/companyFinancialReport  attempt 2/3  → 404 Client Error:  for url: https://www.cse.lk/api/companyFinancialReport
+2026-06-02 18:05:47,502  WARNING   POST https://www.cse.lk/api/companyFinancialReport  attempt 3/3  → 404 Client Error:  for url: https://www.cse.lk/api/companyFinancialReport
+2026-06-02 18:05:47,562  WARNING   GET https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=COMB.N0000&tab=financials&subTab=interim  attempt 1/3  → 404 Client Error: Not Found for url: https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=COMB.N0000&tab=financials&subTab=interim
+2026-06-02 18:05:49,132  WARNING   GET https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=COMB.N0000&tab=financials&subTab=interim  attempt 2/3  → 404 Client Error: Not Found for url: https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=COMB.N0000&tab=financials&subTab=interim
+2026-06-02 18:05:52,416  WARNING   GET https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=COMB.N0000&tab=financials&subTab=interim  attempt 3/3  → 404 Client Error: Not Found for url: https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=COMB.N0000&tab=financials&subTab=interim
+2026-06-02 18:05:52,416  INFO        → 0 reports found (all years)
+2026-06-02 18:05:52,417  WARNING     No Quarterly Reports found for COMB.N0000 — skipping.
+2026-06-02 18:05:52,417  INFO      ============================================================
+2026-06-02 18:05:52,417  INFO      Company : LOLC Holdings PLC  (LOLC.N0000)
+2026-06-02 18:05:52,418  INFO      ============================================================
+2026-06-02 18:05:52,418  INFO        Fetching Annual Reports list …
+2026-06-02 18:05:52,577  WARNING   POST https://www.cse.lk/api/companyFinancialReport  attempt 1/3  → 404 Client Error:  for url: https://www.cse.lk/api/companyFinancialReport
+2026-06-02 18:05:54,149  WARNING   POST https://www.cse.lk/api/companyFinancialReport  attempt 2/3  → 404 Client Error:  for url: https://www.cse.lk/api/companyFinancialReport
+2026-06-02 18:05:57,239  WARNING   POST https://www.cse.lk/api/companyFinancialReport  attempt 3/3  → 404 Client Error:  for url: https://www.cse.lk/api/companyFinancialReport
+2026-06-02 18:05:57,889  WARNING   GET https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=LOLC.N0000&tab=financials&subTab=annual  attempt 1/3  → 404 Client Error: Not Found for url: https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=LOLC.N0000&tab=financials&subTab=annual
+2026-06-02 18:05:59,486  WARNING   GET https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=LOLC.N0000&tab=financials&subTab=annual  attempt 2/3  → 404 Client Error: Not Found for url: https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=LOLC.N0000&tab=financials&subTab=annual
+2026-06-02 18:06:02,553  WARNING   GET https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=LOLC.N0000&tab=financials&subTab=annual  attempt 3/3  → 404 Client Error: Not Found for url: https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=LOLC.N0000&tab=financials&subTab=annual
+2026-06-02 18:06:02,554  INFO        → 0 reports found (all years)
+2026-06-02 18:06:02,554  WARNING     No Annual Reports found for LOLC.N0000 — skipping.
+2026-06-02 18:06:02,554  INFO        Fetching Quarterly Reports list …
+2026-06-02 18:06:02,687  WARNING   POST https://www.cse.lk/api/companyFinancialReport  attempt 1/3  → 404 Client Error:  for url: https://www.cse.lk/api/companyFinancialReport
+2026-06-02 18:06:04,250  WARNING   POST https://www.cse.lk/api/companyFinancialReport  attempt 2/3  → 404 Client Error:  for url: https://www.cse.lk/api/companyFinancialReport
+2026-06-02 18:06:07,334  WARNING   POST https://www.cse.lk/api/companyFinancialReport  attempt 3/3  → 404 Client Error:  for url: https://www.cse.lk/api/companyFinancialReport
+2026-06-02 18:06:07,424  WARNING   GET https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=LOLC.N0000&tab=financials&subTab=interim  attempt 1/3  → 404 Client Error: Not Found for url: https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=LOLC.N0000&tab=financials&subTab=interim
+2026-06-02 18:06:08,984  WARNING   GET https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=LOLC.N0000&tab=financials&subTab=interim  attempt 2/3  → 404 Client Error: Not Found for url: https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=LOLC.N0000&tab=financials&subTab=interim
+2026-06-02 18:06:12,044  WARNING   GET https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=LOLC.N0000&tab=financials&subTab=interim  attempt 3/3  → 404 Client Error: Not Found for url: https://www.cse.lk/pages/listed-company/listed-company.component.html?symbol=LOLC.N0000&tab=financials&subTab=interim
+2026-06-02 18:06:12,045  INFO        → 0 reports found (all years)
+2026-06-02 18:06:12,045  WARNING     No Quarterly Reports found for LOLC.N0000 — skipping.
+2026-06-02 18:06:12,045  INFO      
+2026-06-02 18:06:12,045  INFO      All done.  Check failed_downloads.log for any skipped files.
