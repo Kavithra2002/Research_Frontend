@@ -52,8 +52,10 @@ export default function SectorLensPage() {
               <h1 className="font-heading text-lg font-semibold">Sector Lens</h1>
               <p className="text-sm text-muted-foreground">
                 Equity screener across the available universe, grouped by
-                classified sector. Market metrics show &ldquo;-&rdquo; where no
-                live feed is connected.
+                classified sector. Market cap and price come from the live CSE
+                feed; revenue, cash, and P/E come from extracted reports where
+                available. Total Return YTD still requires a historical price
+                source.
               </p>
             </div>
             <SectorLensExplorer />

@@ -1,9 +1,15 @@
 "use client";
 
 import * as React from "react";
-import { Loader2, RefreshCw, Search } from "lucide-react";
+import { CalendarIcon, Loader2, RefreshCw, Search } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { Calendar } from "@/components/ui/calendar";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 
 type SectorLensRow = {
   slug: string;
@@ -27,19 +33,34 @@ type SectorLensResponse = {
   error?: string;
 };
 
+type SectorLensLiveRow = {
+  name: string;
+  symbol: string;
+  logoUrl: string | null;
+  price: number | null;
+  previousClose: number | null;
+  change: number | null;
+  changePercent: number | null;
+  dayHigh: number | null;
+  dayLow: number | null;
+  open: number | null;
+  marketCap: number | null;
+  turnover: number | null;
+  shareVolume: number | null;
+  tradeVolume: number | null;
+  asOf: string | null;
+};
+
+type SectorLensLiveResponse = {
+  asOf?: string;
+  universeCount?: number;
+  rows?: SectorLensLiveRow[];
+  error?: string;
+};
+
 type GroupBy = "Securities" | "Sectors";
 
-const TABS = [
-  "Overview",
-  "Returns",
-  "Valuation",
-  "Estimates",
-  "Actuals",
-  "Credit",
-  "Technicals",
-  "Custom",
-  "Results",
-] as const;
+const TABS = ["Results", "Live"] as const;
 
 const NO_DATA = "-";
 
@@ -52,21 +73,24 @@ function fmtNumber(value: number | null): string {
   return value.toFixed(2);
 }
 
-function fmtDate(iso?: string): string {
-  if (!iso) return NO_DATA;
-  try {
-    const d = new Date(iso);
-    return `${String(d.getMonth() + 1).padStart(2, "0")}/${String(
-      d.getDate(),
-    ).padStart(2, "0")}/${d.getFullYear()}`;
-  } catch {
-    return iso;
-  }
+function fmtDate(d: Date): string {
+  return `${String(d.getMonth() + 1).padStart(2, "0")}/${String(
+    d.getDate(),
+  ).padStart(2, "0")}/${d.getFullYear()}`;
+}
+
+/** Local YYYY-MM-DD (avoids UTC shifting the day when serialising). */
+function toISODate(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(
+    2,
+    "0",
+  )}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 export function SectorLensExplorer() {
   const [rows, setRows] = React.useState<SectorLensRow[]>([]);
-  const [asOf, setAsOf] = React.useState<string | undefined>(undefined);
+  const [date, setDate] = React.useState<Date>(() => new Date());
+  const [calendarOpen, setCalendarOpen] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [groupBy, setGroupBy] = React.useState<GroupBy>("Sectors");
@@ -75,15 +99,24 @@ export function SectorLensExplorer() {
     "Results",
   );
 
-  const load = React.useCallback(async () => {
+  const [liveRows, setLiveRows] = React.useState<SectorLensLiveRow[]>([]);
+  const [liveLoading, setLiveLoading] = React.useState(false);
+  const [liveError, setLiveError] = React.useState<string | null>(null);
+  const [liveLoaded, setLiveLoaded] = React.useState(false);
+
+  const isLive = activeTab === "Live";
+
+  const load = React.useCallback(async (asOf: Date) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/sector-lens", { cache: "no-store" });
+      const res = await fetch(
+        `/api/sector-lens?asOf=${encodeURIComponent(toISODate(asOf))}`,
+        { cache: "no-store" },
+      );
       const json = (await res.json()) as SectorLensResponse;
       if (!res.ok) throw new Error(json.error ?? `Request failed (${res.status})`);
       setRows(json.rows ?? []);
-      setAsOf(json.asOf);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setRows([]);
@@ -92,9 +125,30 @@ export function SectorLensExplorer() {
     }
   }, []);
 
+  const loadLive = React.useCallback(async () => {
+    setLiveLoading(true);
+    setLiveError(null);
+    try {
+      const res = await fetch(`/api/sector-lens/live`, { cache: "no-store" });
+      const json = (await res.json()) as SectorLensLiveResponse;
+      if (!res.ok) throw new Error(json.error ?? `Request failed (${res.status})`);
+      setLiveRows(json.rows ?? []);
+      setLiveLoaded(true);
+    } catch (e) {
+      setLiveError(e instanceof Error ? e.message : String(e));
+      setLiveRows([]);
+    } finally {
+      setLiveLoading(false);
+    }
+  }, []);
+
   React.useEffect(() => {
-    void load();
-  }, [load]);
+    void load(date);
+  }, [load, date]);
+
+  React.useEffect(() => {
+    if (isLive && !liveLoaded) void loadLive();
+  }, [isLive, liveLoaded, loadLive]);
 
   const filtered = React.useMemo(() => {
     const q = filter.trim().toLowerCase();
@@ -105,6 +159,16 @@ export function SectorLensExplorer() {
         (r.sector ?? "").toLowerCase().includes(q),
     );
   }, [rows, filter]);
+
+  const filteredLive = React.useMemo(() => {
+    const q = filter.trim().toLowerCase();
+    if (!q) return liveRows;
+    return liveRows.filter(
+      (r) =>
+        r.name.toLowerCase().includes(q) ||
+        r.symbol.toLowerCase().includes(q),
+    );
+  }, [liveRows, filter]);
 
   // Group rows for the "Sectors" view, otherwise a single flat list.
   const groups = React.useMemo(() => {
@@ -142,13 +206,13 @@ export function SectorLensExplorer() {
           </span>
           <button
             type="button"
-            onClick={() => void load()}
-            disabled={loading}
+            onClick={() => (isLive ? void loadLive() : void load(date))}
+            disabled={isLive ? liveLoading : loading}
             className="rounded-sm p-1 text-zinc-500 hover:bg-zinc-200 hover:text-zinc-900 dark:text-amber-200/80 dark:hover:bg-amber-900/30 dark:hover:text-amber-100"
             aria-label="Refresh"
             title="Refresh"
           >
-            {loading ? (
+            {(isLive ? liveLoading : loading) ? (
               <Loader2 className="size-3.5 animate-spin" />
             ) : (
               <RefreshCw className="size-3.5" />
@@ -196,10 +260,44 @@ export function SectorLensExplorer() {
           Show Hi/Lo
         </label>
         <div className="ml-auto flex items-center gap-2">
-          <span className="text-sky-600 dark:text-sky-300">As of</span>
-          <span className="rounded-sm bg-zinc-100 px-2 py-0.5 text-zinc-700 dark:bg-amber-950/40 dark:text-amber-100">
-            {fmtDate(asOf)}
-          </span>
+          {isLive ? (
+            <span
+              className="flex items-center gap-1.5 rounded-sm bg-emerald-100 px-2 py-0.5 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
+              title="Live data is not date-scoped"
+            >
+              <span className="inline-block size-1.5 animate-pulse rounded-full bg-emerald-500" />
+              Live • real-time
+            </span>
+          ) : (
+            <>
+              <span className="text-sky-600 dark:text-sky-300">As of</span>
+              <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
+                <PopoverTrigger
+                  className="flex items-center gap-1.5 rounded-sm bg-zinc-100 px-2 py-0.5 text-zinc-700 transition-colors hover:bg-zinc-200 focus:outline-none focus-visible:ring-1 focus-visible:ring-amber-600 dark:bg-amber-950/40 dark:text-amber-100 dark:hover:bg-amber-900/50"
+                  aria-label="Change as-of date"
+                  title="Change as-of date"
+                >
+                  <span>{fmtDate(date)}</span>
+                  <CalendarIcon className="size-3 text-zinc-400 dark:text-amber-400/70" />
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-auto p-0">
+                  <Calendar
+                    mode="single"
+                    selected={date}
+                    defaultMonth={date}
+                    onSelect={(d) => {
+                      if (d) {
+                        setDate(d);
+                        setCalendarOpen(false);
+                      }
+                    }}
+                    disabled={{ after: new Date() }}
+                    autoFocus
+                  />
+                </PopoverContent>
+              </Popover>
+            </>
+          )}
         </div>
       </div>
 
@@ -223,7 +321,20 @@ export function SectorLensExplorer() {
       </div>
 
       {/* Body */}
-      {loading ? (
+      {isLive ? (
+        liveLoading ? (
+          <div className="flex items-center justify-center gap-2 py-16 text-zinc-500 dark:text-amber-200/70">
+            <Loader2 className="size-4 animate-spin" /> Loading live CSE
+            universe…
+          </div>
+        ) : liveError ? (
+          <div className="px-4 py-10 text-center text-sm text-red-600 dark:text-red-400">
+            {liveError}
+          </div>
+        ) : (
+          <LiveTable rows={filteredLive} universeCount={liveRows.length} />
+        )
+      ) : loading ? (
         <div className="flex items-center justify-center gap-2 py-16 text-zinc-500 dark:text-amber-200/70">
           <Loader2 className="size-4 animate-spin" /> Loading universe…
         </div>
@@ -331,6 +442,95 @@ function ScreenerTable({
             <tr>
               <td colSpan={8} className="px-3 py-10 text-center text-zinc-400 dark:text-amber-200/50">
                 No companies available yet.
+              </td>
+            </tr>
+          ) : null}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function fmtPct(value: number | null): string {
+  if (value == null || Number.isNaN(value)) return NO_DATA;
+  return `${value > 0 ? "+" : ""}${value.toFixed(2)}%`;
+}
+
+function toneClass(value: number | null): string {
+  if (value == null || Number.isNaN(value) || value === 0) {
+    return "text-zinc-500 dark:text-amber-200/70";
+  }
+  return value > 0
+    ? "text-emerald-600 dark:text-emerald-400"
+    : "text-red-600 dark:text-red-400";
+}
+
+function LiveTable({
+  rows,
+  universeCount,
+}: {
+  rows: SectorLensLiveRow[];
+  universeCount: number;
+}) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[920px] border-collapse text-[12px]">
+        <thead>
+          <tr className="border-b border-zinc-200 text-zinc-900 dark:border-amber-900/50 dark:text-amber-100">
+            <th className="px-3 py-1.5 text-left font-normal">Name</th>
+            <th className="px-3 py-1.5 text-left font-normal">Symbol</th>
+            <th className="px-3 py-1.5 text-right font-normal">Price</th>
+            <th className="px-3 py-1.5 text-right font-normal">Chg %</th>
+            <th className="px-3 py-1.5 text-right font-normal">Prev Close</th>
+            <th className="px-3 py-1.5 text-right font-normal">Day Hi</th>
+            <th className="px-3 py-1.5 text-right font-normal">Day Lo</th>
+            <th className="px-3 py-1.5 text-right font-normal">Market Cap</th>
+            <th className="px-3 py-1.5 text-right font-normal">Turnover</th>
+            <th className="px-3 py-1.5 text-right font-normal">Volume</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr className="border-b border-zinc-200 bg-zinc-100 font-semibold text-zinc-900 dark:border-amber-900/30 dark:bg-amber-950/20 dark:text-amber-100">
+            <td className="px-3 py-1.5" colSpan={10}>
+              Live CSE Universe ({universeCount})
+            </td>
+          </tr>
+          {rows.map((r, i) => (
+            <tr
+              key={r.symbol || `${r.name}-${i}`}
+              className="border-b border-zinc-100 hover:bg-zinc-50 dark:border-amber-900/15 dark:hover:bg-amber-950/30"
+            >
+              <td className="whitespace-nowrap px-3 py-1.5">
+                <span className="mr-1.5 text-zinc-400 dark:text-amber-200/40">
+                  {i + 1})
+                </span>
+                <span className="font-semibold text-zinc-900 dark:text-amber-200">
+                  {r.name}
+                </span>
+              </td>
+              <td className="whitespace-nowrap px-3 py-1.5 text-zinc-500 dark:text-amber-200/80">
+                {r.symbol || NO_DATA}
+              </td>
+              <td className="px-3 py-1.5 text-right">{fmtNumber(r.price)}</td>
+              <td className={cn("px-3 py-1.5 text-right", toneClass(r.changePercent))}>
+                {fmtPct(r.changePercent)}
+              </td>
+              <td className="px-3 py-1.5 text-right">{fmtNumber(r.previousClose)}</td>
+              <td className="px-3 py-1.5 text-right">{fmtNumber(r.dayHigh)}</td>
+              <td className="px-3 py-1.5 text-right">{fmtNumber(r.dayLow)}</td>
+              <td className="px-3 py-1.5 text-right">{fmtNumber(r.marketCap)}</td>
+              <td className="px-3 py-1.5 text-right">{fmtNumber(r.turnover)}</td>
+              <td className="px-3 py-1.5 text-right">{fmtNumber(r.shareVolume)}</td>
+            </tr>
+          ))}
+
+          {universeCount === 0 ? (
+            <tr>
+              <td
+                colSpan={10}
+                className="px-3 py-10 text-center text-zinc-400 dark:text-amber-200/50"
+              >
+                No live CSE data available right now.
               </td>
             </tr>
           ) : null}

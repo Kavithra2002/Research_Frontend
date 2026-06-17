@@ -5,12 +5,9 @@ import { fetchBackend } from "@/lib/backend-api";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-export async function GET(request: Request) {
+export async function GET() {
   try {
-    const { searchParams } = new URL(request.url);
-    const asOf = searchParams.get("asOf");
-    const qs = asOf ? `?asOf=${encodeURIComponent(asOf)}` : "";
-    const res = await fetchBackend(`/extracted/sector-lens${qs}`);
+    const res = await fetchBackend(`/extracted/sector-lens-live`);
     if (!res.ok) {
       return NextResponse.json(
         { error: `Backend request failed (${res.status})`, rows: [] },
