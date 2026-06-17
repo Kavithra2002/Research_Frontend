@@ -13,6 +13,7 @@ import {
   LifeBuoy,
   Megaphone,
   Newspaper,
+  ScrollText,
   Settings,
   SlidersHorizontal,
   Sparkles,
@@ -79,6 +80,12 @@ const mainNav: NavItem[] = [
     title: "Sector Lens",
     url: "/sector-lens",
     icon: Telescope,
+    roles: ["Admin", "User"],
+  },
+  {
+    title: "Newspaper",
+    url: "/newspaper",
+    icon: ScrollText,
     roles: ["Admin", "User"],
   },
 ];

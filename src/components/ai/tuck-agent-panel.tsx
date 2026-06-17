@@ -145,6 +145,12 @@ export function TuckAgentPanel({ open, onOpenChange }: TuckAgentPanelProps) {
   const [sessions, setSessions] = React.useState<ChatSessionSummary[]>([]);
   const [showHistory, setShowHistory] = React.useState(false);
   const [historyLoading, setHistoryLoading] = React.useState(false);
+  const [historyUpdating, setHistoryUpdating] = React.useState(false);
+  const [historyReveal, setHistoryReveal] = React.useState(false);
+  const [highlightedSessionId, setHighlightedSessionId] = React.useState<
+    string | null
+  >(null);
+  const newChatSavingRef = React.useRef(false);
 
   const bottomRef = React.useRef<HTMLDivElement | null>(null);
   const abortRef = React.useRef<AbortController | null>(null);
@@ -182,7 +188,6 @@ export function TuckAgentPanel({ open, onOpenChange }: TuckAgentPanelProps) {
   // On open: start a fresh chat + load the history list.
   React.useEffect(() => {
     if (open) {
-      if (turns.length === 0) setTurns([greetingTurn(firstName)]);
       void refreshSessions();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -205,30 +210,75 @@ export function TuckAgentPanel({ open, onOpenChange }: TuckAgentPanelProps) {
     setShowHistory(false);
   }
 
-  function startNewChat() {
+  async function startNewChat() {
+    if (newChatSavingRef.current) return;
+
+    const currentTurns = turns;
+    const currentSessionId = sessionId;
+    const hasMessages = currentTurns.length > 0;
+
     abortRef.current?.abort();
     abortRef.current = null;
-    setTurns([greetingTurn(firstName)]);
+    setLoading(false);
+    setSlow(false);
+
+    if (hasMessages) {
+      newChatSavingRef.current = true;
+      setShowHistory(true);
+      setHistoryUpdating(true);
+      setHistoryReveal(false);
+      try {
+        await new Promise((resolve) => window.setTimeout(resolve, 750));
+
+        const savedId = await persist(currentTurns, currentSessionId, {
+          assignSessionId: false,
+        });
+        await refreshSessions();
+
+        setHistoryReveal(true);
+        const highlightId = savedId ?? currentSessionId;
+        if (highlightId) {
+          setHighlightedSessionId(highlightId);
+          window.setTimeout(() => setHighlightedSessionId(null), 1600);
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 550));
+      } finally {
+        setHistoryUpdating(false);
+        setHistoryReveal(false);
+        newChatSavingRef.current = false;
+      }
+    }
+
+    setTurns([]);
     setInput("");
     setError(null);
     setSessionId(null);
     setShowHistory(false);
   }
 
-  async function persist(allTurns: Turn[], currentId: string | null) {
-    const messages = allTurns
-      .filter((t) => t.id !== "greet")
-      .map((t) => ({ role: t.role, content: t.text, ts: t.ts }));
-    if (messages.length === 0) return;
+  async function persist(
+    allTurns: Turn[],
+    currentId: string | null,
+    opts?: { assignSessionId?: boolean },
+  ): Promise<string | null> {
+    const messages = allTurns.map((t) => ({
+      role: t.role,
+      content: t.text,
+      ts: t.ts,
+    }));
+    if (messages.length === 0) return null;
     try {
       const saved = await saveChatSession(AGENT, {
         session_id: currentId,
         messages,
       });
-      if (!currentId) setSessionId(saved.id);
-      void refreshSessions();
+      if (opts?.assignSessionId !== false && !currentId) {
+        setSessionId(saved.id);
+      }
+      return saved.id;
     } catch {
       // saving history is best-effort; don't disrupt the chat
+      return null;
     }
   }
 
@@ -252,9 +302,10 @@ export function TuckAgentPanel({ open, onOpenChange }: TuckAgentPanelProps) {
     // Keep the caret in the input so the user can keep typing right away.
     requestAnimationFrame(() => textareaRef.current?.focus());
 
-    const history: TuckMessage[] = nextTurns
-      .filter((t) => t.id !== "greet")
-      .map((t) => ({ role: t.role, content: t.text }));
+    const history: TuckMessage[] = nextTurns.map((t) => ({
+      role: t.role,
+      content: t.text,
+    }));
 
     const controller = new AbortController();
     abortRef.current = controller;
@@ -277,7 +328,6 @@ export function TuckAgentPanel({ open, onOpenChange }: TuckAgentPanelProps) {
       };
       const finalTurns = [...nextTurns, assistantTurn];
       setTurns(finalTurns);
-      void persist(finalTurns, sessionId);
     } catch (e) {
       if ((e as Error)?.name === "AbortError") {
         // Timed out (not a manual cancel) → leave a kind apology in the chat.
@@ -290,7 +340,6 @@ export function TuckAgentPanel({ open, onOpenChange }: TuckAgentPanelProps) {
           };
           const finalTurns = [...nextTurns, apologyTurn];
           setTurns(finalTurns);
-          void persist(finalTurns, sessionId);
         }
         return;
       }
@@ -324,7 +373,7 @@ export function TuckAgentPanel({ open, onOpenChange }: TuckAgentPanelProps) {
         text: m.content,
         ts: m.ts,
       }));
-      setTurns(loaded.length ? loaded : [greetingTurn(firstName)]);
+      setTurns(loaded.length ? loaded : []);
       setSessionId(session.id);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -340,7 +389,7 @@ export function TuckAgentPanel({ open, onOpenChange }: TuckAgentPanelProps) {
       if (id === sessionId) {
         abortRef.current?.abort();
         abortRef.current = null;
-        setTurns([greetingTurn(firstName)]);
+        setTurns([]);
         setInput("");
         setError(null);
         setLoading(false);
@@ -424,11 +473,16 @@ export function TuckAgentPanel({ open, onOpenChange }: TuckAgentPanelProps) {
                 type="button"
                 variant="ghost"
                 size="icon-sm"
-                onClick={startNewChat}
+                onClick={() => void startNewChat()}
+                disabled={historyUpdating}
                 aria-label="New chat"
                 title="New chat"
               >
-                <MessageSquarePlus className="size-4" />
+                {historyUpdating ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <MessageSquarePlus className="size-4" />
+                )}
               </Button>
             </div>
           </div>
@@ -439,6 +493,9 @@ export function TuckAgentPanel({ open, onOpenChange }: TuckAgentPanelProps) {
             <HistoryList
               sessions={sessions}
               loading={historyLoading}
+              updating={historyUpdating}
+              reveal={historyReveal}
+              highlightedId={highlightedSessionId}
               activeId={sessionId}
               onBack={() => setShowHistory(false)}
               onOpen={(id) => void openSession(id)}
@@ -447,6 +504,11 @@ export function TuckAgentPanel({ open, onOpenChange }: TuckAgentPanelProps) {
           ) : (
             <ScrollArea className="h-full">
               <div className="flex flex-col gap-3 p-4">
+                {turns.length === 0 && !loading ? (
+                  <p className="text-sm leading-relaxed text-muted-foreground">
+                    {greetingTurn(firstName).text}
+                  </p>
+                ) : null}
                 {turns.map((turn) =>
                   turn.role === "user" ? (
                     <UserBubble key={turn.id} content={turn.text} ts={turn.ts} />
@@ -485,7 +547,7 @@ export function TuckAgentPanel({ open, onOpenChange }: TuckAgentPanelProps) {
                   </div>
                 )}
 
-                {turns.length <= 1 && !loading && (
+                {turns.length === 0 && !loading && (
                   <div className="mt-1 flex flex-col gap-1.5">
                     <span className="text-[11px] font-medium text-muted-foreground">
                       Try asking:
@@ -581,6 +643,9 @@ export function TuckAgentPanel({ open, onOpenChange }: TuckAgentPanelProps) {
 function HistoryList({
   sessions,
   loading,
+  updating,
+  reveal,
+  highlightedId,
   activeId,
   onBack,
   onOpen,
@@ -588,6 +653,9 @@ function HistoryList({
 }: {
   sessions: ChatSessionSummary[];
   loading: boolean;
+  updating?: boolean;
+  reveal?: boolean;
+  highlightedId?: string | null;
   activeId: string | null;
   onBack: () => void;
   onOpen: (id: string) => void;
@@ -595,29 +663,57 @@ function HistoryList({
 }) {
   return (
     <div className="flex h-full flex-col">
-      <div className="flex shrink-0 items-center gap-2 border-b px-3 py-2">
+      <div
+        className={cn(
+          "flex shrink-0 items-center gap-2 border-b px-3 py-2",
+          updating && "animate-history-section-shimmer",
+        )}
+      >
         <Button variant="ghost" size="icon-sm" onClick={onBack} aria-label="Back">
           <ArrowLeft className="size-4" />
         </Button>
         <span className="text-sm font-medium">Past chats</span>
-        <span className="ml-auto text-xs text-muted-foreground">
-          {sessions.length}
-        </span>
+        {updating ? (
+          <span className="ml-auto inline-flex items-center gap-1 text-[11px] text-primary">
+            <Loader2 className="size-3 animate-spin" />
+            Updating…
+          </span>
+        ) : (
+          <span className="ml-auto text-xs text-muted-foreground">
+            {sessions.length}
+          </span>
+        )}
       </div>
+      {updating ? (
+        <div
+          className="relative h-0.5 shrink-0 overflow-hidden bg-muted"
+          aria-hidden
+        >
+          <div className="absolute inset-y-0 w-1/3 animate-demo-indeterminate bg-primary/70" />
+        </div>
+      ) : null}
       <ScrollArea className="min-h-0 flex-1">
         <div className="flex flex-col gap-1 p-2">
-          {loading && (
+          {loading && !updating && (
             <div className="flex items-center gap-2 px-2 py-4 text-xs text-muted-foreground">
               <Loader2 className="size-3.5 animate-spin" />
               Loading history…
             </div>
           )}
-          {!loading && sessions.length === 0 && (
+          {updating && !reveal ? (
+            <div className="flex flex-col items-center gap-2 px-2 py-6 text-center text-xs text-muted-foreground">
+              <Loader2 className="size-4 animate-spin text-primary" />
+              Saving your conversation…
+            </div>
+          ) : null}
+          {!loading && !updating && sessions.length === 0 && (
             <div className="px-2 py-6 text-center text-xs text-muted-foreground">
-              No past chats yet. Start a conversation and it will be saved here.
+              No past chats yet. Start a conversation — it&apos;s saved when you
+              press New chat.
             </div>
           )}
-          {sessions.map((s) => (
+          {(reveal || !updating) &&
+            sessions.map((s) => (
             <div
               key={s.id}
               role="button"
@@ -628,7 +724,9 @@ function HistoryList({
               }}
               className={cn(
                 "group flex cursor-pointer items-center gap-2 rounded-lg border border-transparent px-2.5 py-2 transition-colors hover:border-border hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                s.id === activeId && "border-sky-500/40 bg-sky-500/5",
+                !updating && s.id === activeId && "border-sky-500/40 bg-sky-500/5",
+                s.id === highlightedId &&
+                  "animate-history-save-flash border-primary/30",
               )}
             >
               <div className="flex min-w-0 flex-1 flex-col">

@@ -210,6 +210,33 @@
   .animate-fade-rise {
     animation: fade-rise 0.5s ease-out both;
   }
+  @keyframes history-save-flash {
+    0%,
+    100% {
+      background-color: transparent;
+    }
+    35% {
+      background-color: color-mix(in oklab, var(--primary) 18%, transparent);
+    }
+    70% {
+      background-color: color-mix(in oklab, var(--primary) 8%, transparent);
+    }
+  }
+  .animate-history-save-flash {
+    animation: history-save-flash 1.4s ease-out;
+  }
+  @keyframes history-section-shimmer {
+    0%,
+    100% {
+      opacity: 0.55;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
+  .animate-history-section-shimmer {
+    animation: history-section-shimmer 0.9s ease-in-out infinite;
+  }
   .animate-demo-indeterminate {
     animation: demo-indeterminate 1.2s ease-in-out infinite;
   }

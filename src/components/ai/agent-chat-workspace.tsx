@@ -112,7 +112,7 @@ export interface AgentChatConfig {
   avatarSrc: string;
   fallback: string;
   accent: AccentName;
-  /** Full greeting shown as the first assistant turn. */
+  /** Full greeting shown on the empty/landing screen only (not a chat bubble). */
   greeting: (firstName: string) => string;
   /** Short paragraph under the hero heading on a fresh chat. */
   heroSubtitle: string;
@@ -228,17 +228,7 @@ export function AgentChatWorkspace({
     user?.email ||
     undefined;
 
-  const greetingTurn = React.useCallback(
-    (): Turn => ({
-      id: "greet",
-      role: "assistant",
-      text: config.greeting(firstName),
-      ts: Date.now(),
-    }),
-    [config, firstName],
-  );
-
-  const [turns, setTurns] = React.useState<Turn[]>(() => [greetingTurn()]);
+  const [turns, setTurns] = React.useState<Turn[]>([]);
   const [input, setInput] = React.useState("");
   const [loading, setLoading] = React.useState(false);
   const [slow, setSlow] = React.useState(false);
@@ -247,6 +237,12 @@ export function AgentChatWorkspace({
 
   const [sessionId, setSessionId] = React.useState<string | null>(null);
   const [sessions, setSessions] = React.useState<ChatSessionSummary[]>([]);
+  const [historyUpdating, setHistoryUpdating] = React.useState(false);
+  const [historyReveal, setHistoryReveal] = React.useState(false);
+  const [highlightedSessionId, setHighlightedSessionId] = React.useState<
+    string | null
+  >(null);
+  const newChatSavingRef = React.useRef(false);
 
   const { reports } = useAgentReports(config.agent);
   const [view, setView] = React.useState<View>({ kind: "chat" });
@@ -293,10 +289,47 @@ export function AgentChatWorkspace({
     }
   }, [turns, loading, view.kind]);
 
-  function startNewChat() {
+  async function startNewChat() {
+    if (newChatSavingRef.current) return;
+
+    const currentTurns = turns;
+    const currentSessionId = sessionId;
+    const hasMessages = currentTurns.length > 0;
+
     abortRef.current?.abort();
     abortRef.current = null;
-    setTurns([greetingTurn()]);
+    setLoading(false);
+    setSlow(false);
+
+    if (hasMessages) {
+      newChatSavingRef.current = true;
+      setHistoryUpdating(true);
+      setHistoryReveal(false);
+      try {
+        // Phase 1: animation only — history list does not update yet.
+        await new Promise((resolve) => window.setTimeout(resolve, 750));
+
+        const savedId = await persist(currentTurns, currentSessionId, {
+          assignSessionId: false,
+        });
+        await refreshSessions();
+
+        // Phase 2: reveal the saved chat in history with a highlight flash.
+        setHistoryReveal(true);
+        const highlightId = savedId ?? currentSessionId;
+        if (highlightId) {
+          setHighlightedSessionId(highlightId);
+          window.setTimeout(() => setHighlightedSessionId(null), 1600);
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 550));
+      } finally {
+        setHistoryUpdating(false);
+        setHistoryReveal(false);
+        newChatSavingRef.current = false;
+      }
+    }
+
+    setTurns([]);
     setInput("");
     setError(null);
     setSessionId(null);
@@ -304,20 +337,29 @@ export function AgentChatWorkspace({
     requestAnimationFrame(() => textareaRef.current?.focus());
   }
 
-  async function persist(allTurns: Turn[], currentId: string | null) {
-    const messages = allTurns
-      .filter((t) => t.id !== "greet")
-      .map((t) => ({ role: t.role, content: t.text, ts: t.ts }));
-    if (messages.length === 0) return;
+  async function persist(
+    allTurns: Turn[],
+    currentId: string | null,
+    opts?: { assignSessionId?: boolean },
+  ): Promise<string | null> {
+    const messages = allTurns.map((t) => ({
+      role: t.role,
+      content: t.text,
+      ts: t.ts,
+    }));
+    if (messages.length === 0) return null;
     try {
       const saved = await saveChatSession(config.agent, {
         session_id: currentId,
         messages,
       });
-      if (!currentId) setSessionId(saved.id);
-      void refreshSessions();
+      if (opts?.assignSessionId !== false && !currentId) {
+        setSessionId(saved.id);
+      }
+      return saved.id;
     } catch {
       // saving history is best-effort; don't disrupt the chat
+      return null;
     }
   }
 
@@ -341,9 +383,10 @@ export function AgentChatWorkspace({
     timedOutRef.current = false;
     requestAnimationFrame(() => textareaRef.current?.focus());
 
-    const history: AgentChatMessage[] = nextTurns
-      .filter((t) => t.id !== "greet")
-      .map((t) => ({ role: t.role, content: t.text }));
+    const history: AgentChatMessage[] = nextTurns.map((t) => ({
+      role: t.role,
+      content: t.text,
+    }));
 
     const controller = new AbortController();
     abortRef.current = controller;
@@ -365,7 +408,6 @@ export function AgentChatWorkspace({
       };
       const finalTurns = [...nextTurns, assistantTurn];
       setTurns(finalTurns);
-      void persist(finalTurns, sessionId);
     } catch (e) {
       if ((e as Error)?.name === "AbortError") {
         if (timedOutRef.current) {
@@ -377,7 +419,6 @@ export function AgentChatWorkspace({
           };
           const finalTurns = [...nextTurns, apologyTurn];
           setTurns(finalTurns);
-          void persist(finalTurns, sessionId);
         }
         return;
       }
@@ -410,7 +451,7 @@ export function AgentChatWorkspace({
         text: m.content,
         ts: m.ts,
       }));
-      setTurns(loaded.length ? loaded : [greetingTurn()]);
+      setTurns(loaded.length ? loaded : []);
       setSessionId(session.id);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -424,7 +465,7 @@ export function AgentChatWorkspace({
       if (id === sessionId) {
         abortRef.current?.abort();
         abortRef.current = null;
-        setTurns([greetingTurn()]);
+        setTurns([]);
         setInput("");
         setError(null);
         setLoading(false);
@@ -441,10 +482,8 @@ export function AgentChatWorkspace({
     void send(input);
   }
 
-  // First-chat "landing" state: only the greeting is present and nothing is in
-  // flight — show a centered hero (ChatGPT style). Once the conversation
-  // starts, fall back to the normal scrolling layout with a docked composer.
-  const isLanding = view.kind === "chat" && turns.length <= 1 && !loading;
+  // Landing: greeting lives in the hero only — not as a chat bubble.
+  const isLanding = view.kind === "chat" && turns.length === 0 && !loading;
 
   const composerInner = (
     <div className="flex w-full items-end gap-2">
@@ -491,11 +530,16 @@ export function AgentChatWorkspace({
         size="icon"
         variant="outline"
         className="size-9 shrink-0"
-        onClick={startNewChat}
+        onClick={() => void startNewChat()}
+        disabled={historyUpdating}
         aria-label="New chat"
         title="New chat"
       >
-        <Plus className="size-4" />
+        {historyUpdating ? (
+          <Loader2 className="size-4 animate-spin" />
+        ) : (
+          <Plus className="size-4" />
+        )}
       </Button>
     </div>
   );
@@ -530,12 +574,17 @@ export function AgentChatWorkspace({
         <div className="shrink-0 p-3">
           <Button
             type="button"
-            onClick={startNewChat}
+            onClick={() => void startNewChat()}
+            disabled={historyUpdating}
             className="w-full justify-start gap-2"
             variant="outline"
           >
-            <MessageSquarePlus className="size-4" />
-            New chat
+            {historyUpdating ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <MessageSquarePlus className="size-4" />
+            )}
+            {historyUpdating ? "Saving chat…" : "New chat"}
           </Button>
         </div>
 
@@ -588,29 +637,64 @@ export function AgentChatWorkspace({
         </div>
 
         {/* Chat history */}
-        <div className="flex min-h-0 flex-1 flex-col border-t">
-          <div className="flex shrink-0 items-center gap-2 px-3 py-2 text-muted-foreground">
+        <div
+          className={cn(
+            "flex min-h-0 flex-1 flex-col border-t transition-colors",
+            historyUpdating && "bg-muted/20",
+          )}
+        >
+          <div
+            className={cn(
+              "flex shrink-0 items-center gap-2 px-3 py-2 text-muted-foreground",
+              historyUpdating && "animate-history-section-shimmer",
+            )}
+          >
             <Clock className="size-3.5" />
             <span className="text-xs font-semibold uppercase tracking-wide">
               Chat history
             </span>
-            <span className="ml-auto text-[11px] tabular-nums">
-              {sessions.length}
-            </span>
+            {historyUpdating ? (
+              <span className="ml-auto inline-flex items-center gap-1 text-[11px] text-primary">
+                <Loader2 className="size-3 animate-spin" />
+                Updating…
+              </span>
+            ) : (
+              <span className="ml-auto text-[11px] tabular-nums">
+                {sessions.length}
+              </span>
+            )}
           </div>
+          {historyUpdating ? (
+            <div
+              className="relative h-0.5 shrink-0 overflow-hidden bg-muted"
+              aria-hidden
+            >
+              <div className="absolute inset-y-0 w-1/3 animate-demo-indeterminate bg-primary/70" />
+            </div>
+          ) : null}
           <ScrollArea className="min-h-0 flex-1">
             <div className="flex flex-col gap-1 px-2 pb-2">
-              {sessions.length === 0 ? (
+              {historyUpdating && !historyReveal ? (
+                <div className="flex flex-col items-center gap-2 px-2 py-6 text-center text-[11px] text-muted-foreground">
+                  <Loader2 className="size-4 animate-spin text-primary" />
+                  Saving your conversation…
+                </div>
+              ) : sessions.length === 0 ? (
                 <p className="px-2 py-4 text-center text-[11px] text-muted-foreground">
-                  No past chats yet. Start a conversation and it&apos;s saved
-                  here.
+                  No past chats yet. Start a conversation and it's saved when
+                  you press New chat.
                 </p>
               ) : (
                 sessions.map((s) => (
                   <RailItem
                     key={s.id}
                     accent={accent}
-                    active={view.kind === "chat" && s.id === sessionId}
+                    active={
+                      !historyUpdating &&
+                      view.kind === "chat" &&
+                      s.id === sessionId
+                    }
+                    highlighted={s.id === highlightedSessionId}
                     title={s.title}
                     subtitle={`${new Date(
                       s.updated_at,
@@ -664,7 +748,7 @@ export function AgentChatWorkspace({
                     Hi {firstName}, I&apos;m {config.name}
                   </h1>
                   <p className="max-w-md text-sm text-muted-foreground">
-                    {config.heroSubtitle}
+                    {config.greeting(firstName)}
                   </p>
                 </div>
               </div>
@@ -773,6 +857,7 @@ export function AgentChatWorkspace({
 function RailItem({
   accent,
   active,
+  highlighted,
   title,
   subtitle,
   icon,
@@ -781,6 +866,7 @@ function RailItem({
 }: {
   accent: AccentTokens;
   active: boolean;
+  highlighted?: boolean;
   title: string;
   subtitle: string;
   icon?: React.ReactNode;
@@ -798,6 +884,7 @@ function RailItem({
       className={cn(
         "group flex cursor-pointer items-start gap-2 rounded-lg border border-transparent px-2.5 py-2 transition-colors hover:border-border hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         active && accent.active,
+        highlighted && "animate-history-save-flash border-primary/30",
       )}
     >
       {icon}

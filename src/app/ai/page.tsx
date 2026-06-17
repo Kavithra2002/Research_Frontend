@@ -272,11 +272,11 @@ function AgentCard({
 }) {
   const s = statusStyle[agent.status];
   const isLive = agent.status !== "Offline";
-  const interactive = Boolean(onActivate);
+  const chatEnabled = running && Boolean(onActivate);
   const [starting, setStarting] = React.useState(false);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (!interactive) return;
+    if (!chatEnabled) return;
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
       onActivate?.();
@@ -287,15 +287,15 @@ function AgentCard({
     <div
       className={cn(
         "group animate-fade-rise relative overflow-hidden rounded-xl border bg-card p-4 transition-all duration-300 hover:-translate-y-1 hover:shadow-lg hover:shadow-foreground/5 hover:ring-1 hover:ring-foreground/10",
-        interactive && "cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        chatEnabled && "cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         starting && "animate-card-neon-glow",
       )}
       style={{ animationDelay: `${index * 80}ms` }}
-      role={interactive ? "button" : undefined}
-      tabIndex={interactive ? 0 : undefined}
-      onClick={interactive ? onActivate : undefined}
-      onKeyDown={interactive ? handleKeyDown : undefined}
-      aria-label={interactive ? `Chat with ${agent.name}` : undefined}
+      role={chatEnabled ? "button" : undefined}
+      tabIndex={chatEnabled ? 0 : undefined}
+      onClick={chatEnabled ? onActivate : undefined}
+      onKeyDown={chatEnabled ? handleKeyDown : undefined}
+      aria-label={chatEnabled ? `Chat with ${agent.name}` : undefined}
     >
       {/* Galaxy "booting up" shimmer + running neon border while starting. */}
       {starting ? (
@@ -397,11 +397,30 @@ function AgentCard({
             onStartingChange={setStarting}
             disabled={!isAgentImplemented(agent.id)}
           />
-          {interactive ? (
-            <span className="inline-flex items-center gap-1 rounded-full border bg-amber-500/10 px-2 py-0.5 font-medium text-amber-700 dark:text-amber-300">
+          {onActivate ? (
+            <button
+              type="button"
+              disabled={!chatEnabled}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (chatEnabled) onActivate?.();
+              }}
+              onKeyDown={(e) => e.stopPropagation()}
+              aria-label={
+                chatEnabled
+                  ? `Chat with ${agent.name}`
+                  : `Run ${agent.name} to enable chat`
+              }
+              className={cn(
+                "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium transition-colors",
+                chatEnabled
+                  ? "border-amber-500/30 bg-amber-500/10 text-amber-700 hover:bg-amber-500/20 dark:text-amber-300"
+                  : "cursor-not-allowed border-muted bg-muted/40 text-muted-foreground opacity-60",
+              )}
+            >
               <MessageCircle className="size-3" />
               Chat
-            </span>
+            </button>
           ) : (
             <span className="font-mono uppercase tracking-wider">
               {agent.role.split(" ")[0]}

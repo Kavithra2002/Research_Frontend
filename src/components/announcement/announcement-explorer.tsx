@@ -7,16 +7,14 @@ import {
   AlertTriangle,
   ArrowDownRight,
   ArrowUpRight,
-  Building2,
   Calendar,
   CheckCircle2,
   ChevronRight,
-  CircleDollarSign,
+  ChevronDown,
   ExternalLink,
   FileText,
   Flame,
   Gauge,
-  Layers,
   Megaphone,
   Newspaper,
   RefreshCw,
@@ -199,6 +197,8 @@ type Snapshot = {
   directive: DocumentRow[];
 };
 
+const ANNOUNCEMENT_LIST_LIMIT = 15;
+
 const EMPTY_SNAPSHOT: Snapshot = {
   marketStatus: null,
   marketSummary: null,
@@ -336,6 +336,13 @@ async function fetchEndpoint<T>(endpoint: string): Promise<T | null> {
 // Sub-components
 // ---------------------------------------------------------------------------
 
+function toneClass(v: number | null | undefined): string {
+  if (v == null || Number.isNaN(v) || v === 0) return "text-muted-foreground";
+  return v > 0
+    ? "text-emerald-600 dark:text-emerald-400"
+    : "text-rose-600 dark:text-rose-400";
+}
+
 function ChangeBadge({
   value,
   percentage,
@@ -379,49 +386,181 @@ function ChangeBadge({
   );
 }
 
-function RangeBar({
-  low,
-  high,
+function MarketStatCell({
+  label,
   value,
+  sub,
+  tone,
+  change,
+  percentage,
 }: {
-  low: number | undefined;
-  high: number | undefined;
-  value: number | undefined;
+  label: string;
+  value: string;
+  sub?: string;
+  tone?: number | null;
+  change?: number | null;
+  percentage?: number | null;
 }) {
-  if (
-    low === undefined ||
-    high === undefined ||
-    value === undefined ||
-    high <= low
-  ) {
-    return (
-      <div className="h-2 w-full rounded-full bg-muted">
-        <div className="h-full w-0 rounded-full bg-primary" />
-      </div>
-    );
-  }
-  const clamped = Math.max(low, Math.min(high, value));
-  const pct = ((clamped - low) / (high - low)) * 100;
+  const hasChange = change != null || percentage != null;
+  const direction = percentage ?? change ?? 0;
+  const positive = direction > 0;
+  const negative = direction < 0;
   return (
-    <div className="space-y-1">
-      <div className="relative h-2 w-full overflow-hidden rounded-full bg-muted">
-        <div
-          className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-rose-400 via-amber-300 to-emerald-400"
-          style={{ width: "100%" }}
-        />
-        <div
-          className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-background bg-foreground shadow"
-          style={{ left: `${pct}%`, width: 10, height: 10 }}
-        />
-      </div>
-      <div className="flex items-center justify-between text-[10px] text-muted-foreground tabular-nums">
-        <span>L {fmtNumber(low)}</span>
-        <span className="font-medium text-foreground">
-          {fmtNumber(value)}
+    <div className="flex min-w-0 flex-col gap-0.5 rounded-lg border bg-card px-3 py-2">
+      <span className="text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
+        {label}
+      </span>
+      <span className="truncate text-lg font-semibold tabular-nums text-foreground">
+        {value}
+      </span>
+      {hasChange ? (
+        <span
+          className={cn(
+            "inline-flex items-center gap-0.5 text-xs font-medium tabular-nums",
+            toneClass(percentage ?? change),
+          )}
+        >
+          {positive ? (
+            <ArrowUpRight className="size-3" />
+          ) : negative ? (
+            <ArrowDownRight className="size-3" />
+          ) : null}
+          {change != null ? (
+            <span>
+              {change > 0 ? "+" : ""}
+              {change.toFixed(2)}
+            </span>
+          ) : null}
+          {percentage != null ? (
+            <span>
+              {change != null ? " " : ""}
+              ({fmtPct(percentage)})
+            </span>
+          ) : null}
         </span>
-        <span>H {fmtNumber(high)}</span>
-      </div>
+      ) : sub ? (
+        <span
+          className={cn("text-xs font-medium tabular-nums", toneClass(tone))}
+        >
+          {sub}
+        </span>
+      ) : null}
     </div>
+  );
+}
+
+function MarketOverviewSection({
+  data,
+  totals,
+  status,
+  isOpen,
+  isClosed,
+}: {
+  data: Snapshot;
+  totals: {
+    advancers: number;
+    decliners: number;
+    tradingCompanies: number;
+    totalSectorTurnover: number;
+    totalSectorVolume: number;
+  };
+  status: string;
+  isOpen: boolean;
+  isClosed: boolean;
+}) {
+  const breadthTotal = totals.advancers + totals.decliners || 1;
+  return (
+    <Card size="sm" className="gap-0 overflow-hidden py-0">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
+        <div className="flex items-center gap-2">
+          <Gauge className="size-4 text-primary" />
+          <span className="text-sm font-medium">Market overview</span>
+          <Badge
+            variant={isOpen ? "default" : "secondary"}
+            className={cn(
+              "h-5 font-medium",
+              isOpen &&
+                "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
+              isClosed &&
+                "bg-rose-500/15 text-rose-700 dark:text-rose-300",
+            )}
+          >
+            <span
+              className={cn(
+                "size-1.5 rounded-full",
+                isOpen
+                  ? "animate-pulse bg-emerald-500"
+                  : isClosed
+                    ? "bg-rose-500"
+                    : "bg-amber-500",
+              )}
+            />
+            {status}
+          </Badge>
+        </div>
+        <span className="text-xs text-muted-foreground">
+          {data.marketSummary?.tradeDate
+            ? `Session ${fmtDate(data.marketSummary.tradeDate)}`
+            : "Live CSE data"}
+        </span>
+      </div>
+
+      <CardContent className="py-3">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+          <MarketStatCell
+            label="ASPI"
+            value={fmtNumber(data.aspi?.value)}
+            change={data.aspi?.change}
+            percentage={data.aspi?.percentage}
+          />
+          <MarketStatCell
+            label="S&P SL20"
+            value={fmtNumber(data.snp?.value)}
+            change={data.snp?.change}
+            percentage={data.snp?.percentage}
+          />
+          <MarketStatCell
+            label="Turnover"
+            value={`LKR ${fmtCompact(data.marketSummary?.tradeVolume)}`}
+          />
+          <MarketStatCell
+            label="Volume"
+            value={fmtCompact(data.marketSummary?.shareVolume)}
+            sub={`${fmtInt(data.marketSummary?.trades)} trades`}
+          />
+          <MarketStatCell
+            label="Companies"
+            value={fmtInt(totals.tradingCompanies)}
+            sub={`${fmtInt(data.sectors.length)} sectors`}
+          />
+          <div className="flex min-w-0 flex-col gap-1 rounded-lg border bg-card px-3 py-2">
+            <div className="flex items-center justify-between text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
+              <span>Breadth</span>
+              <span className="normal-case tracking-normal">
+                {fmtInt(totals.advancers)}↑ · {fmtInt(totals.decliners)}↓
+              </span>
+            </div>
+            <div className="mt-0.5 flex h-1.5 overflow-hidden rounded-full bg-muted">
+              <div
+                className="bg-emerald-500"
+                style={{
+                  width: `${(totals.advancers / breadthTotal) * 100}%`,
+                }}
+              />
+              <div
+                className="bg-rose-500"
+                style={{
+                  width: `${(totals.decliners / breadthTotal) * 100}%`,
+                }}
+              />
+            </div>
+            <span className="text-xs font-medium tabular-nums text-muted-foreground">
+              Top movers list
+            </span>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -462,62 +601,6 @@ function CompanyLogo({
       loading="lazy"
       onError={() => setErrored(true)}
     />
-  );
-}
-
-function MetricTile({
-  icon,
-  label,
-  value,
-  hint,
-  accent,
-  delay = 0,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: React.ReactNode;
-  hint?: React.ReactNode;
-  accent?: "primary" | "emerald" | "rose" | "amber" | "sky";
-  delay?: number;
-}) {
-  return (
-    <Card
-      size="sm"
-      className="animate-fade-rise group/tile gap-2 transition-all duration-300 hover:-translate-y-0.5 hover:ring-foreground/20 hover:shadow-md"
-      style={{ animationDelay: `${delay}ms` }}
-    >
-      <CardContent className="flex items-start gap-3">
-        <div
-          className={cn(
-            "animate-float-y flex size-8 shrink-0 items-center justify-center rounded-lg ring-1 transition-transform duration-300 group-hover/tile:scale-110",
-            accent === "emerald" &&
-              "bg-emerald-500/10 text-emerald-600 ring-emerald-500/20 dark:text-emerald-400",
-            accent === "rose" &&
-              "bg-rose-500/10 text-rose-600 ring-rose-500/20 dark:text-rose-400",
-            accent === "amber" &&
-              "bg-amber-500/10 text-amber-600 ring-amber-500/20 dark:text-amber-400",
-            accent === "sky" &&
-              "bg-sky-500/10 text-sky-600 ring-sky-500/20 dark:text-sky-400",
-            (!accent || accent === "primary") &&
-              "bg-primary/15 text-primary ring-primary/20",
-          )}
-          style={{ animationDelay: `${delay}ms` }}
-        >
-          {icon}
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
-            {label}
-          </div>
-          <div className="mt-0.5 truncate text-xl font-semibold tabular-nums">
-            {value}
-          </div>
-          {hint ? (
-            <div className="mt-0.5 text-xs text-muted-foreground">{hint}</div>
-          ) : null}
-        </div>
-      </CardContent>
-    </Card>
   );
 }
 
@@ -983,101 +1066,6 @@ function DailyHistoryTable({ rows }: { rows: DailyMarketRecord[] }) {
   );
 }
 
-function HistorySparkline({
-  rows,
-  field,
-  color,
-  label,
-}: {
-  rows: DailyMarketRecord[];
-  field: "asi" | "spp" | "marketTurnover" | "marketTrades";
-  color: string;
-  label: string;
-}) {
-  const points = rows
-    .slice()
-    .reverse()
-    .map((r) => r[field])
-    .filter((v): v is number => typeof v === "number");
-  if (points.length < 2) {
-    return (
-      <div className="flex h-24 items-center justify-center rounded-md border border-dashed text-xs text-muted-foreground">
-        Insufficient data
-      </div>
-    );
-  }
-  const min = Math.min(...points);
-  const max = Math.max(...points);
-  const range = max - min || 1;
-  const w = 300;
-  const h = 80;
-  const step = w / (points.length - 1);
-  const coords = points.map((v, i) => {
-    const x = i * step;
-    const y = h - ((v - min) / range) * h;
-    return [x, y] as const;
-  });
-  const path = coords
-    .map(([x, y], i) => `${i === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`)
-    .join(" ");
-  const area = `${path} L ${w} ${h} L 0 ${h} Z`;
-  const last = points[points.length - 1];
-  const first = points[0];
-  const delta = last - first;
-  const deltaPct = (delta / first) * 100;
-  const trendingUp = delta >= 0;
-  return (
-    <div className="animate-fade-rise rounded-lg border p-3 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md">
-      <div className="flex items-baseline justify-between">
-        <div className="text-xs font-medium text-muted-foreground">
-          {label}
-        </div>
-        <div className="text-xs text-muted-foreground">{points.length} days</div>
-      </div>
-      <div className="mt-1 flex items-baseline gap-2">
-        <span className="text-lg font-semibold tabular-nums">
-          {fmtCompact(last)}
-        </span>
-        <ChangeBadge value={delta} percentage={deltaPct} size="sm" />
-      </div>
-      <svg
-        viewBox={`0 0 ${w} ${h}`}
-        preserveAspectRatio="none"
-        className="mt-2 h-20 w-full"
-      >
-        <defs>
-          <linearGradient id={`grad-${field}`} x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0%" stopColor={color} stopOpacity="0.35" />
-            <stop offset="100%" stopColor={color} stopOpacity="0" />
-          </linearGradient>
-        </defs>
-        <path d={area} fill={`url(#grad-${field})`} />
-        <path
-          d={path}
-          fill="none"
-          stroke={color}
-          strokeWidth={2}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-        <circle
-          cx={coords[coords.length - 1][0]}
-          cy={coords[coords.length - 1][1]}
-          r={3}
-          fill={color}
-        />
-      </svg>
-      <div className="mt-1 flex items-center justify-between text-[10px] text-muted-foreground tabular-nums">
-        <span>Low {fmtCompact(min)}</span>
-        <span className={trendingUp ? "text-emerald-600" : "text-rose-600"}>
-          {trendingUp ? "Trending up" : "Trending down"}
-        </span>
-        <span>High {fmtCompact(max)}</span>
-      </div>
-    </div>
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
@@ -1257,12 +1245,7 @@ export function AnnouncementExplorer() {
             </div>
           </CardContent>
         </Card>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-24 w-full" />
-          ))}
-        </div>
-        <Skeleton className="h-72 w-full" />
+        <Skeleton className="h-64 w-full" />
         <Skeleton className="h-96 w-full" />
       </div>
     );
@@ -1363,130 +1346,14 @@ export function AnnouncementExplorer() {
         </div>
       </Card>
 
-      {/* Index cards */}
-      <div className="grid gap-3 lg:grid-cols-2">
-        <IndexCard
-          name="All Share Price Index (ASPI)"
-          symbol="ASPI"
-          data={data.aspi}
-          accent="primary"
-        />
-        <IndexCard
-          name="S&P Sri Lanka 20"
-          symbol="S&P SL20"
-          data={data.snp}
-          accent="sky"
-        />
-      </div>
-
-      {/* Market summary tiles */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <MetricTile
-          icon={<CircleDollarSign className="size-4" />}
-          label="Market Turnover"
-          value={`LKR ${fmtCompact(data.marketSummary?.tradeVolume)}`}
-          hint={
-            data.marketSummary?.tradeDate
-              ? `As of ${fmtDate(data.marketSummary.tradeDate)}`
-              : undefined
-          }
-          accent="primary"
-          delay={0}
-        />
-        <MetricTile
-          icon={<Layers className="size-4" />}
-          label="Share Volume"
-          value={fmtCompact(data.marketSummary?.shareVolume)}
-          hint={`${fmtInt(data.marketSummary?.trades)} trades today`}
-          accent="sky"
-          delay={80}
-        />
-        <MetricTile
-          icon={<TrendingUp className="size-4" />}
-          label="Advancers (top)"
-          value={fmtInt(totals.advancers)}
-          hint={`${fmtInt(totals.decliners)} declining tickers shown`}
-          accent="emerald"
-          delay={160}
-        />
-        <MetricTile
-          icon={<Building2 className="size-4" />}
-          label="Trading Companies"
-          value={fmtInt(totals.tradingCompanies)}
-          hint={`Across ${fmtInt(data.sectors.length)} sectors`}
-          accent="amber"
-          delay={240}
-        />
-      </div>
-
-      {/* Sparkline charts from daily history */}
-      {data.dailyHistory.length > 0 ? (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <HistorySparkline
-            rows={data.dailyHistory}
-            field="asi"
-            color="oklch(0.648 0.2 131.684)"
-            label="ASPI history"
-          />
-          <HistorySparkline
-            rows={data.dailyHistory}
-            field="spp"
-            color="oklch(0.6 0.18 250)"
-            label="S&P SL20 history"
-          />
-          <HistorySparkline
-            rows={data.dailyHistory}
-            field="marketTurnover"
-            color="oklch(0.65 0.18 30)"
-            label="Turnover history"
-          />
-          <HistorySparkline
-            rows={data.dailyHistory}
-            field="marketTrades"
-            color="oklch(0.6 0.18 290)"
-            label="Trades history"
-          />
-        </div>
-      ) : null}
-
-      {/* Movers */}
-      <Card size="sm" className="py-0">
-        <Tabs
-          value={activeMoverTab}
-          onValueChange={setActiveMoverTab}
-          className="flex flex-col gap-0"
-        >
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
-            <div className="flex items-center gap-2">
-              <Flame className="animate-float-y size-4 text-primary" />
-              <span className="text-sm font-medium">Today&apos;s movers</span>
-            </div>
-            <TabsList variant="line" className="h-9 gap-2">
-              <TabsTrigger value="gainers">
-                <TrendingUp className="size-3.5" />
-                Gainers
-              </TabsTrigger>
-              <TabsTrigger value="losers">
-                <TrendingDown className="size-3.5" />
-                Losers
-              </TabsTrigger>
-              <TabsTrigger value="active">
-                <Activity className="size-3.5" />
-                Most active
-              </TabsTrigger>
-            </TabsList>
-          </div>
-          <TabsContent value="gainers" className="px-4 pb-4 pt-3">
-            <MoverList rows={data.topGainers} variant="gainer" />
-          </TabsContent>
-          <TabsContent value="losers" className="px-4 pb-4 pt-3">
-            <MoverList rows={data.topLosers} variant="loser" />
-          </TabsContent>
-          <TabsContent value="active" className="px-4 pb-4 pt-3">
-            <ActiveList rows={data.mostActive} />
-          </TabsContent>
-        </Tabs>
-      </Card>
+      {/* Market overview */}
+      <MarketOverviewSection
+        data={data}
+        totals={totals}
+        status={status}
+        isOpen={isOpen}
+        isClosed={isClosed}
+      />
 
       {/* Sector performance */}
       <Card size="sm">
@@ -1684,6 +1551,45 @@ export function AnnouncementExplorer() {
         </Tabs>
       </Card>
 
+      {/* Movers — below announcements */}
+      <Card size="sm" className="py-0">
+        <Tabs
+          value={activeMoverTab}
+          onValueChange={setActiveMoverTab}
+          className="flex flex-col gap-0"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
+            <div className="flex items-center gap-2">
+              <Flame className="animate-float-y size-4 text-primary" />
+              <span className="text-sm font-medium">Today&apos;s movers</span>
+            </div>
+            <TabsList variant="line" className="h-9 gap-2">
+              <TabsTrigger value="gainers">
+                <TrendingUp className="size-3.5" />
+                Gainers
+              </TabsTrigger>
+              <TabsTrigger value="losers">
+                <TrendingDown className="size-3.5" />
+                Losers
+              </TabsTrigger>
+              <TabsTrigger value="active">
+                <Activity className="size-3.5" />
+                Most active
+              </TabsTrigger>
+            </TabsList>
+          </div>
+          <TabsContent value="gainers" className="px-4 pb-4 pt-3">
+            <MoverList rows={data.topGainers} variant="gainer" />
+          </TabsContent>
+          <TabsContent value="losers" className="px-4 pb-4 pt-3">
+            <MoverList rows={data.topLosers} variant="loser" />
+          </TabsContent>
+          <TabsContent value="active" className="px-4 pb-4 pt-3">
+            <ActiveList rows={data.mostActive} />
+          </TabsContent>
+        </Tabs>
+      </Card>
+
       {/* Footer */}
       <Separator />
       <div className="flex flex-wrap items-center justify-between gap-2 pb-4 text-xs text-muted-foreground">
@@ -1738,6 +1644,74 @@ function AnnTabTrigger({
   );
 }
 
+function CappedAnnouncementList<T>({
+  items,
+  emptyLabel,
+  renderItem,
+  keyFn,
+}: {
+  items: T[];
+  emptyLabel: string;
+  renderItem: (item: T, index: number) => React.ReactNode;
+  keyFn: (item: T, index: number) => string;
+}) {
+  const [expanded, setExpanded] = React.useState(false);
+  const listRef = React.useRef<HTMLDivElement>(null);
+  const hasMore = items.length > ANNOUNCEMENT_LIST_LIMIT;
+  const visible = expanded ? items : items.slice(0, ANNOUNCEMENT_LIST_LIMIT);
+
+  const scrollDown = () => {
+    listRef.current?.scrollBy({ top: 280, behavior: "smooth" });
+  };
+
+  if (items.length === 0) {
+    return (
+      <div className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
+        {emptyLabel}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div
+        ref={listRef}
+        className={cn(
+          expanded && hasMore && "max-h-[min(70vh,720px)] overflow-y-auto pr-1",
+        )}
+      >
+        <div className="grid gap-2 md:grid-cols-2">
+          {visible.map((item, i) => (
+            <React.Fragment key={keyFn(item, i)}>
+              {renderItem(item, i)}
+            </React.Fragment>
+          ))}
+        </div>
+      </div>
+      {hasMore && !expanded ? (
+        <div className="flex justify-center border-t pt-3">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setExpanded(true)}
+          >
+            <ChevronDown className="size-4" />
+            Show {items.length - ANNOUNCEMENT_LIST_LIMIT} more below
+          </Button>
+        </div>
+      ) : null}
+      {expanded && hasMore ? (
+        <div className="flex justify-center border-t pt-3">
+          <Button variant="ghost" size="sm" onClick={scrollDown}>
+            <ChevronDown className="size-4" />
+            Scroll down
+          </Button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function AnnouncementTab({
   value,
   rows,
@@ -1749,20 +1723,15 @@ function AnnouncementTab({
 }) {
   return (
     <TabsContent value={value} className="px-4 pb-4 pt-3">
-      {rows.length === 0 ? (
-        <div className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
-          {emptyLabel}
-        </div>
-      ) : (
-        <div className="grid gap-2 md:grid-cols-2">
-          {rows.map((row, i) => (
-            <AnnouncementCard
-              key={`${value}-${row.announcementId ?? "x"}-${row.id ?? "x"}-${i}`}
-              row={row}
-            />
-          ))}
-        </div>
-      )}
+      <CappedAnnouncementList
+        key={value}
+        items={rows}
+        emptyLabel={emptyLabel}
+        keyFn={(row, i) =>
+          `${value}-${row.announcementId ?? "x"}-${row.id ?? "x"}-${i}`
+        }
+        renderItem={(row) => <AnnouncementCard row={row} />}
+      />
     </TabsContent>
   );
 }
@@ -1778,91 +1747,13 @@ function DocumentTab({
 }) {
   return (
     <TabsContent value={value} className="px-4 pb-4 pt-3">
-      {rows.length === 0 ? (
-        <div className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
-          {emptyLabel}
-        </div>
-      ) : (
-        <div className="grid gap-2 md:grid-cols-2">
-          {rows.map((row, i) => (
-            <DocumentCard
-              key={`${value}-${row.id ?? "x"}-${row.path ?? i}`}
-              row={row}
-            />
-          ))}
-        </div>
-      )}
+      <CappedAnnouncementList
+        key={value}
+        items={rows}
+        emptyLabel={emptyLabel}
+        keyFn={(row, i) => `${value}-${row.id ?? "x"}-${row.path ?? i}`}
+        renderItem={(row) => <DocumentCard row={row} />}
+      />
     </TabsContent>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Index card component (with range visualisation).
-// ---------------------------------------------------------------------------
-
-function IndexCard({
-  name,
-  symbol,
-  data,
-  accent,
-}: {
-  name: string;
-  symbol: string;
-  data: IndexData | null;
-  accent: "primary" | "sky";
-}) {
-  const positive = (data?.change ?? 0) > 0;
-  const negative = (data?.change ?? 0) < 0;
-  return (
-    <Card className="animate-fade-rise group/index transition-all duration-300 hover:-translate-y-0.5 hover:ring-foreground/20 hover:shadow-md">
-      <CardContent className="flex flex-col gap-3">
-        <div className="flex items-start justify-between gap-2">
-          <div>
-            <div className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
-              {symbol}
-            </div>
-            <div className="text-sm text-muted-foreground">{name}</div>
-          </div>
-          <div
-            className={cn(
-              "animate-float-y flex size-7 items-center justify-center rounded-lg ring-1 transition-transform duration-300 group-hover/index:scale-110",
-              accent === "primary" && "bg-primary/15 text-primary ring-primary/20",
-              accent === "sky" &&
-                "bg-sky-500/10 text-sky-600 ring-sky-500/20 dark:text-sky-400",
-            )}
-          >
-            {positive ? (
-              <TrendingUp className="size-3.5" />
-            ) : negative ? (
-              <TrendingDown className="size-3.5" />
-            ) : (
-              <Activity className="size-3.5" />
-            )}
-          </div>
-        </div>
-        <div className="flex items-baseline gap-3">
-          <span className="text-3xl font-semibold tabular-nums">
-            {fmtNumber(data?.value)}
-          </span>
-          <ChangeBadge value={data?.change} percentage={data?.percentage} />
-        </div>
-        <RangeBar
-          low={data?.lowValue}
-          high={data?.highValue}
-          value={data?.value}
-        />
-        <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-          <span>
-            {data?.timestamp ? `Updated ${fmtDate(data.timestamp)}` : "—"}
-          </span>
-          <span>
-            Range{" "}
-            <span className="font-medium text-foreground tabular-nums">
-              {fmtNumber(data?.lowValue)} – {fmtNumber(data?.highValue)}
-            </span>
-          </span>
-        </div>
-      </CardContent>
-    </Card>
   );
 }

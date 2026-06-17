@@ -5,6 +5,7 @@ import { CalendarIcon, Loader2, RefreshCw, Search } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Calendar } from "@/components/ui/calendar";
+import { CompactYearsDropdown, isSectorLensYearDropdownInteraction } from "@/components/sector-lens/compact-years-dropdown";
 import {
   Popover,
   PopoverContent,
@@ -64,6 +65,9 @@ const TABS = ["Results", "Live"] as const;
 
 const NO_DATA = "-";
 
+/** Earliest month available in the Sector Lens as-of calendar. */
+const SECTOR_LENS_START_MONTH = new Date(2010, 0);
+
 function fmtNumber(value: number | null): string {
   if (value == null || Number.isNaN(value)) return NO_DATA;
   const abs = Math.abs(value);
@@ -90,6 +94,7 @@ function toISODate(d: Date): string {
 export function SectorLensExplorer() {
   const [rows, setRows] = React.useState<SectorLensRow[]>([]);
   const [date, setDate] = React.useState<Date>(() => new Date());
+  const [pickerDate, setPickerDate] = React.useState<Date>(() => new Date());
   const [calendarOpen, setCalendarOpen] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
@@ -271,7 +276,20 @@ export function SectorLensExplorer() {
           ) : (
             <>
               <span className="text-sky-600 dark:text-sky-300">As of</span>
-              <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
+              <Popover
+                open={calendarOpen}
+                onOpenChange={(open, details) => {
+                  if (
+                    !open &&
+                    isSectorLensYearDropdownInteraction(details.event.target)
+                  ) {
+                    details.cancel();
+                    return;
+                  }
+                  if (open) setPickerDate(date);
+                  setCalendarOpen(open);
+                }}
+              >
                 <PopoverTrigger
                   className="flex items-center gap-1.5 rounded-sm bg-zinc-100 px-2 py-0.5 text-zinc-700 transition-colors hover:bg-zinc-200 focus:outline-none focus-visible:ring-1 focus-visible:ring-amber-600 dark:bg-amber-950/40 dark:text-amber-100 dark:hover:bg-amber-900/50"
                   aria-label="Change as-of date"
@@ -280,11 +298,14 @@ export function SectorLensExplorer() {
                   <span>{fmtDate(date)}</span>
                   <CalendarIcon className="size-3 text-zinc-400 dark:text-amber-400/70" />
                 </PopoverTrigger>
-                <PopoverContent align="end" className="w-auto p-0">
+                <PopoverContent align="end" className="w-auto overflow-visible p-0">
                   <Calendar
                     mode="single"
-                    selected={date}
-                    defaultMonth={date}
+                    selected={pickerDate}
+                    defaultMonth={pickerDate}
+                    captionLayout="dropdown"
+                    startMonth={SECTOR_LENS_START_MONTH}
+                    components={{ YearsDropdown: CompactYearsDropdown }}
                     onSelect={(d) => {
                       if (d) {
                         setDate(d);

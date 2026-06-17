@@ -119,12 +119,52 @@ export function parseSegments(content: string): Segment[] {
   return segments;
 }
 
-/* Inline rendering (no dangerouslySetInnerHTML): **bold**, *italic*, `code`. */
+/* Inline rendering (no dangerouslySetInnerHTML): **bold**, *italic*, `code`, [links](url). */
+const LINK_RE = /^\[([^\]]+)\]\(([^)]+)\)$/;
+
+function safeHref(raw: string): string | null {
+  const href = raw.trim();
+  if (!href) return null;
+  try {
+    const url = new URL(href);
+    if (url.protocol === "http:" || url.protocol === "https:") {
+      return url.toString();
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 function InlineText({ text }: { text: string }) {
-  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`|\*[^*\n]+\*)/g);
+  const parts = text.split(
+    /(\*\*[^*]+\*\*|`[^`]+`|\*[^*\n]+\*|\[[^\]]+\]\([^)]+\))/g,
+  );
   return (
     <>
       {parts.map((part, idx) => {
+        const link = LINK_RE.exec(part);
+        if (link) {
+          const href = safeHref(link[2]);
+          if (href) {
+            return (
+              <a
+                key={idx}
+                href={href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-medium text-emerald-600 underline underline-offset-2 hover:text-emerald-500 dark:text-emerald-400"
+              >
+                {link[1]}
+              </a>
+            );
+          }
+          return (
+            <span key={idx} className="text-muted-foreground">
+              {link[1]} ({link[2]})
+            </span>
+          );
+        }
         if (part.startsWith("**") && part.endsWith("**")) {
           return (
             <strong key={idx} className="font-semibold text-foreground">
