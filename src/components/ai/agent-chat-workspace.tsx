@@ -10,6 +10,7 @@ import {
   Loader2,
   LineChart,
   MessageSquarePlus,
+  Pencil,
   Plus,
   Send,
   Square,
@@ -24,10 +25,13 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/components/auth/auth-provider";
 import {
+  clearActiveSessionId,
   deleteChatSession,
+  getActiveSessionId,
   getChatSession,
   listChatSessions,
   saveChatSession,
+  setActiveSessionId,
   type ChatSessionSummary,
 } from "@/lib/chat-log";
 import {
@@ -230,6 +234,8 @@ export function AgentChatWorkspace({
 
   const [turns, setTurns] = React.useState<Turn[]>([]);
   const [input, setInput] = React.useState("");
+  const [editingTurnId, setEditingTurnId] = React.useState<string | null>(null);
+  const [editDraft, setEditDraft] = React.useState("");
   const [loading, setLoading] = React.useState(false);
   const [slow, setSlow] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -243,6 +249,11 @@ export function AgentChatWorkspace({
     string | null
   >(null);
   const newChatSavingRef = React.useRef(false);
+
+  const turnsRef = React.useRef(turns);
+  const sessionIdRef = React.useRef(sessionId);
+  turnsRef.current = turns;
+  sessionIdRef.current = sessionId;
 
   const { reports } = useAgentReports(config.agent);
   const [view, setView] = React.useState<View>({ kind: "chat" });
@@ -282,6 +293,63 @@ export function AgentChatWorkspace({
   React.useEffect(() => {
     void refreshSessions();
   }, [refreshSessions]);
+
+  /** Resume the in-progress chat when returning to this agent page. */
+  React.useEffect(() => {
+    let cancelled = false;
+    const activeId = getActiveSessionId(config.agent);
+    if (!activeId) return;
+
+    void (async () => {
+      try {
+        const session = await getChatSession(config.agent, activeId);
+        if (cancelled || turnsRef.current.length > 0) return;
+        const loaded: Turn[] = session.messages.map((m, i) => ({
+          id: `${session.id}-${i}`,
+          role: m.role,
+          text: m.content,
+          ts: m.ts,
+        }));
+        if (loaded.length > 0) {
+          setTurns(loaded);
+          setSessionId(session.id);
+          sessionIdRef.current = session.id;
+        }
+      } catch {
+        clearActiveSessionId(config.agent);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [config.agent]);
+
+  /** Save the active conversation when navigating away from the page. */
+  React.useEffect(() => {
+    return () => {
+      const currentTurns = turnsRef.current;
+      const currentSessionId = sessionIdRef.current;
+      if (currentTurns.length === 0) return;
+
+      const messages = currentTurns.map((t) => ({
+        role: t.role,
+        content: t.text,
+        ts: t.ts,
+      }));
+
+      void saveChatSession(config.agent, {
+        session_id: currentSessionId,
+        messages,
+      })
+        .then((saved) => {
+          setActiveSessionId(config.agent, saved.id);
+        })
+        .catch(() => {
+          // best-effort
+        });
+    };
+  }, [config.agent]);
 
   React.useEffect(() => {
     if (view.kind === "chat") {
@@ -331,8 +399,12 @@ export function AgentChatWorkspace({
 
     setTurns([]);
     setInput("");
+    setEditingTurnId(null);
+    setEditDraft("");
     setError(null);
     setSessionId(null);
+    clearActiveSessionId(config.agent);
+    sessionIdRef.current = null;
     setView({ kind: "chat" });
     requestAnimationFrame(() => textareaRef.current?.focus());
   }
@@ -356,6 +428,8 @@ export function AgentChatWorkspace({
       if (opts?.assignSessionId !== false && !currentId) {
         setSessionId(saved.id);
       }
+      sessionIdRef.current = saved.id;
+      setActiveSessionId(config.agent, saved.id);
       return saved.id;
     } catch {
       // saving history is best-effort; don't disrupt the chat
@@ -363,9 +437,40 @@ export function AgentChatWorkspace({
     }
   }
 
-  async function send(text: string) {
+  async function autoSave(allTurns: Turn[], currentId: string | null) {
+    const savedId = await persist(allTurns, currentId);
+    if (savedId) {
+      await refreshSessions();
+    }
+  }
+
+  function cancelEdit() {
+    setEditingTurnId(null);
+    setEditDraft("");
+  }
+
+  function startEdit(turnId: string, text: string) {
+    if (loading) return;
+    setEditingTurnId(turnId);
+    setEditDraft(text);
+  }
+
+  async function send(
+    text: string,
+    opts?: { replaceFromTurnId?: string },
+  ) {
     const trimmed = text.trim();
     if (!trimmed || loading) return;
+
+    let priorTurns = turns;
+    if (opts?.replaceFromTurnId) {
+      const idx = turns.findIndex((t) => t.id === opts.replaceFromTurnId);
+      if (idx === -1 || turns[idx]?.role !== "user") return;
+      priorTurns = turns.slice(0, idx);
+      cancelEdit();
+      abortRef.current?.abort();
+      abortRef.current = null;
+    }
 
     setView({ kind: "chat" });
     setError(null);
@@ -375,7 +480,7 @@ export function AgentChatWorkspace({
       text: trimmed,
       ts: Date.now(),
     };
-    const nextTurns = [...turns, userTurn];
+    const nextTurns = [...priorTurns, userTurn];
     setTurns(nextTurns);
     setInput("");
     setLoading(true);
@@ -408,6 +513,7 @@ export function AgentChatWorkspace({
       };
       const finalTurns = [...nextTurns, assistantTurn];
       setTurns(finalTurns);
+      void autoSave(finalTurns, sessionIdRef.current);
     } catch (e) {
       if ((e as Error)?.name === "AbortError") {
         if (timedOutRef.current) {
@@ -419,6 +525,7 @@ export function AgentChatWorkspace({
           };
           const finalTurns = [...nextTurns, apologyTurn];
           setTurns(finalTurns);
+          void autoSave(finalTurns, sessionIdRef.current);
         }
         return;
       }
@@ -453,6 +560,10 @@ export function AgentChatWorkspace({
       }));
       setTurns(loaded.length ? loaded : []);
       setSessionId(session.id);
+      setEditingTurnId(null);
+      setEditDraft("");
+      sessionIdRef.current = session.id;
+      setActiveSessionId(config.agent, session.id);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -467,9 +578,13 @@ export function AgentChatWorkspace({
         abortRef.current = null;
         setTurns([]);
         setInput("");
+        setEditingTurnId(null);
+        setEditDraft("");
         setError(null);
         setLoading(false);
         setSessionId(null);
+        clearActiveSessionId(config.agent);
+        sessionIdRef.current = null;
       }
       await refreshSessions();
     } catch {
@@ -681,8 +796,8 @@ export function AgentChatWorkspace({
                 </div>
               ) : sessions.length === 0 ? (
                 <p className="px-2 py-4 text-center text-[11px] text-muted-foreground">
-                  No past chats yet. Start a conversation and it's saved when
-                  you press New chat.
+                  No past chats yet. Start a conversation — it saves
+                  automatically as you chat.
                 </p>
               ) : (
                 sessions.map((s) => (
@@ -780,7 +895,18 @@ export function AgentChatWorkspace({
               <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 py-6">
                 {turns.map((turn) =>
                   turn.role === "user" ? (
-                    <UserBubble key={turn.id} content={turn.text} ts={turn.ts} />
+                    <UserBubble
+                      key={turn.id}
+                      content={turn.text}
+                      ts={turn.ts}
+                      isEditing={editingTurnId === turn.id}
+                      editDraft={editDraft}
+                      canEdit={!loading}
+                      onStartEdit={() => startEdit(turn.id, turn.text)}
+                      onEditDraftChange={setEditDraft}
+                      onEditSubmit={() => void send(editDraft, { replaceFromTurnId: turn.id })}
+                      onEditCancel={cancelEdit}
+                    />
                   ) : (
                     <AssistantBubble
                       key={turn.id}
@@ -1022,11 +1148,90 @@ function ReportView({
  * Message bubbles
  * ────────────────────────────────────────────────────────────────────────── */
 
-function UserBubble({ content, ts }: { content: string; ts: number }) {
+function UserBubble({
+  content,
+  ts,
+  isEditing,
+  editDraft,
+  canEdit,
+  onStartEdit,
+  onEditDraftChange,
+  onEditSubmit,
+  onEditCancel,
+}: {
+  content: string;
+  ts: number;
+  isEditing: boolean;
+  editDraft: string;
+  canEdit: boolean;
+  onStartEdit: () => void;
+  onEditDraftChange: (value: string) => void;
+  onEditSubmit: () => void;
+  onEditCancel: () => void;
+}) {
+  const editRef = React.useRef<HTMLTextAreaElement | null>(null);
+
+  React.useEffect(() => {
+    if (!isEditing) return;
+    const el = editRef.current;
+    if (!el) return;
+    el.focus();
+    el.setSelectionRange(el.value.length, el.value.length);
+  }, [isEditing]);
+
+  if (isEditing) {
+    return (
+      <div className="flex w-full max-w-[85%] flex-col items-end gap-1.5 self-end">
+        <textarea
+          ref={editRef}
+          value={editDraft}
+          onChange={(e) => onEditDraftChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              onEditSubmit();
+            }
+            if (e.key === "Escape") {
+              e.preventDefault();
+              onEditCancel();
+            }
+          }}
+          rows={3}
+          className="w-full resize-none rounded-2xl rounded-br-sm border border-primary/40 bg-primary/10 px-3 py-2 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+        />
+        <div className="flex items-center gap-1.5">
+          <Button
+            type="button"
+            size="sm"
+            onClick={onEditSubmit}
+            disabled={!editDraft.trim()}
+          >
+            Send
+          </Button>
+          <Button type="button" size="sm" variant="outline" onClick={onEditCancel}>
+            Cancel
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex flex-col items-end gap-0.5">
-      <div className="max-w-[85%] overflow-hidden break-words whitespace-pre-wrap rounded-2xl rounded-br-sm bg-primary px-3 py-2 text-sm text-primary-foreground">
-        {content}
+    <div className="group flex flex-col items-end gap-0.5">
+      <div className="flex max-w-[85%] items-end gap-1">
+        <button
+          type="button"
+          onClick={onStartEdit}
+          disabled={!canEdit}
+          className="mb-1 shrink-0 rounded-md p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground group-hover:opacity-100 disabled:pointer-events-none disabled:opacity-0"
+          aria-label="Edit message"
+          title="Edit message"
+        >
+          <Pencil className="size-3.5" />
+        </button>
+        <div className="overflow-hidden break-words whitespace-pre-wrap rounded-2xl rounded-br-sm bg-primary px-3 py-2 text-sm text-primary-foreground">
+          {content}
+        </div>
       </div>
       <span className="px-1 text-[10px] text-muted-foreground">
         {formatTime(ts)}

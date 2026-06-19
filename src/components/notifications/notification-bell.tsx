@@ -151,14 +151,25 @@ export function NotificationBell() {
     setSelecting(false);
   };
 
+  const announcementHref = (n: AppNotification): string | undefined => {
+    const annId =
+      n.announcementId ??
+      (n.id.startsWith("cse-ann-") ? n.id.slice("cse-ann-".length) : null);
+    if (annId) {
+      return `/announcement?ann=${encodeURIComponent(annId)}&tab=approved`;
+    }
+    return n.href;
+  };
+
   const handleRowClick = (n: AppNotification) => {
     if (selecting) {
       toggleSelect(n.id);
       return;
     }
     markRead(n.id);
-    if (n.href) {
-      router.push(n.href);
+    const href = announcementHref(n);
+    if (href) {
+      router.push(href);
       setOpen(false);
     }
   };

@@ -6,7 +6,6 @@ import {
   Bot,
   Check,
   FolderOpen,
-  KeyRound,
   Mail,
   Plus,
   Settings2,
@@ -45,8 +44,8 @@ import {
 } from "@/lib/email-recipients";
 import {
   AGENT_CATALOG,
-  addAgent,
   getAgentStatus,
+  isAgentImplemented,
   removeAgent,
   statusStyle,
   useAddedAgentIds,
@@ -57,6 +56,7 @@ import {
 import { RobinConfigPanel } from "@/components/ai/robin-config-panel";
 import { TuckConfigPanel } from "@/components/ai/tuck-config-panel";
 import { MarianConfigPanel } from "@/components/ai/marian-config-panel";
+import { JoneConfigPanel } from "@/components/ai/jone-config-panel";
 
 const STORAGE_KEY = "ambeon.ai.extraction.config";
 
@@ -251,27 +251,6 @@ export function AiConfigurationPanel() {
       <CompanyGroupsManager />
 
       <EmailRecipientsCard />
-
-      <Card size="sm">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <KeyRound className="size-4 text-muted-foreground" />
-            API key
-          </CardTitle>
-          <CardDescription>
-            OpenAI credentials are configured on the server (environment or{" "}
-            <code className="text-xs">backend/.env</code>), not in the browser.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground">
-            Run extractions from the System page or via{" "}
-            <code className="rounded bg-muted px-1 text-xs">Data_retrive.py</code>{" "}
-            with <code className="rounded bg-muted px-1 text-xs">--apikey</code>{" "}
-            or <code className="rounded bg-muted px-1 text-xs">OPENAI_API_KEY</code>.
-          </p>
-        </CardContent>
-      </Card>
     </div>
   );
 }
@@ -393,16 +372,22 @@ function AgentsConfigGrid() {
   const [genericAgent, setGenericAgent] = React.useState<AiAgent | null>(null);
 
   const openConfig = (agent: AiAgent) => {
-    if (agent.id === "robin" || agent.id === "tuck" || agent.id === "marian") {
+    if (
+      agent.id === "robin" ||
+      agent.id === "tuck" ||
+      agent.id === "marian" ||
+      agent.id === "jone"
+    ) {
       setConfigAgentId(agent.id);
     } else {
       setGenericAgent(agent);
     }
   };
 
-  const genericAdded = genericAgent
-    ? addedIds.includes(genericAgent.id)
-    : false;
+  const genericAdded =
+    genericAgent &&
+    isAgentImplemented(genericAgent.id) &&
+    addedIds.includes(genericAgent.id);
 
   return (
     <>
@@ -429,6 +414,10 @@ function AgentsConfigGrid() {
       <MarianConfigPanel
         open={configAgentId === "marian"}
         onOpenChange={(o) => setConfigAgentId(o ? "marian" : null)}
+      />
+      <JoneConfigPanel
+        open={configAgentId === "jone"}
+        onOpenChange={(o) => setConfigAgentId(o ? "jone" : null)}
       />
 
       {/* Generic placeholder config for agents without a dedicated panel yet. */}
@@ -465,12 +454,6 @@ function AgentsConfigGrid() {
               </Button>
             ) : null}
             <DialogClose render={<Button variant="outline" />}>Close</DialogClose>
-            {genericAgent && !genericAdded ? (
-              <Button type="button" onClick={() => addAgent(genericAgent.id)}>
-                <Plus className="size-3.5" />
-                Add to workspace
-              </Button>
-            ) : null}
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -491,6 +474,7 @@ function AgentConfigCard({
 }) {
   const s = statusStyle[status];
   const isLive = status !== "Offline";
+  const workspaceReady = isAgentImplemented(agent.id);
 
   return (
     <div className="group relative flex flex-col overflow-hidden rounded-xl border bg-card p-4 transition-all duration-300 hover:shadow-lg hover:shadow-foreground/5 hover:ring-1 hover:ring-foreground/10">
@@ -544,7 +528,11 @@ function AgentConfigCard({
       </p>
 
       <div className="mt-3 flex items-center justify-between gap-2">
-        {isAdded ? (
+        {!workspaceReady ? (
+          <span className="inline-flex items-center gap-1 rounded-full border border-dashed bg-muted/40 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+            Coming soon
+          </span>
+        ) : isAdded ? (
           <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-300">
             <Check className="size-3" />
             Added
@@ -557,12 +545,14 @@ function AgentConfigCard({
         )}
         <Button
           type="button"
-          variant={isAdded ? "secondary" : "default"}
+          variant={workspaceReady && isAdded ? "secondary" : "default"}
           size="sm"
           onClick={onOpen}
           className="shrink-0"
         >
-          {isAdded ? (
+          {!workspaceReady ? (
+            "Coming soon"
+          ) : isAdded ? (
             <>
               <Settings2 className="size-3.5" />
               Configure

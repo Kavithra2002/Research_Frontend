@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import {
+  CalendarIcon,
   ExternalLink,
   Flame,
   Globe2,
@@ -11,10 +12,12 @@ import {
   RefreshCw,
   Radio,
   TrendingUp,
+  X,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Calendar } from "@/components/ui/calendar";
 import {
   Card,
   CardContent,
@@ -22,6 +25,11 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tabs,
@@ -59,6 +67,49 @@ const CATEGORY_LABELS: Record<NewsItem["category"], string> = {
   commodities: "Commodities",
   geopolitics: "Geopolitics",
 };
+
+const FEATURED_DAY_LIMIT = 8;
+
+function sameCalendarDay(iso: string, date: Date): boolean {
+  const d = new Date(iso);
+  return (
+    d.getFullYear() === date.getFullYear() &&
+    d.getMonth() === date.getMonth() &&
+    d.getDate() === date.getDate()
+  );
+}
+
+function dayFeaturedScore(item: NewsItem): number {
+  let score = 0;
+  if (item.featured) score += 10;
+  if (item.category === "geopolitics" || item.category === "commodities") {
+    score += 5;
+  }
+  if (item.imageUrl || item.youtubeId) score += 3;
+  return score;
+}
+
+function topStoriesForDay(items: NewsItem[], date: Date): NewsItem[] {
+  const byId = new Map<string, NewsItem>();
+  for (const item of items) {
+    if (sameCalendarDay(item.publishedAt, date)) {
+      byId.set(item.id, item);
+    }
+  }
+  return [...byId.values()]
+    .sort((a, b) => {
+      const scoreDiff = dayFeaturedScore(b) - dayFeaturedScore(a);
+      if (scoreDiff !== 0) return scoreDiff;
+      return (
+        new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()
+      );
+    })
+    .slice(0, FEATURED_DAY_LIMIT);
+}
+
+function fmtDayLabel(date: Date): string {
+  return new Intl.DateTimeFormat("en-GB", { dateStyle: "medium" }).format(date);
+}
 
 function fmtDate(iso: string): string {
   try {
@@ -218,6 +269,7 @@ export function NewspaperExplorer() {
   const [refreshing, setRefreshing] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [tab, setTab] = React.useState("all");
+  const [selectedDate, setSelectedDate] = React.useState<Date | undefined>();
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -253,11 +305,24 @@ export function NewspaperExplorer() {
     }
   };
 
-  const featured = data?.featured ?? [];
+  const allItems = React.useMemo(() => {
+    const byId = new Map<string, NewsItem>();
+    for (const item of [...(data?.featured ?? []), ...(data?.feed ?? [])]) {
+      byId.set(item.id, item);
+    }
+    return [...byId.values()];
+  }, [data]);
+
+  const featured = selectedDate
+    ? topStoriesForDay(allItems, selectedDate)
+    : (data?.featured ?? []);
+
+  const feedBase = selectedDate
+    ? allItems.filter((item) => sameCalendarDay(item.publishedAt, selectedDate))
+    : (data?.feed ?? []);
+
   const feed =
-    tab === "all"
-      ? (data?.feed ?? [])
-      : (data?.feed ?? []).filter((i) => i.category === tab);
+    tab === "all" ? feedBase : feedBase.filter((i) => i.category === tab);
 
   return (
     <div className="flex min-w-0 flex-col gap-6">
@@ -287,7 +352,7 @@ export function NewspaperExplorer() {
           disabled={refreshing}
         >
           <RefreshCw className={cn("size-4", refreshing && "animate-spin")} />
-          {refreshing ? "Refreshing feeds & thumbnails…" : "Refresh feeds"}
+          {refreshing ? "Refreshing feeds…" : "Refresh feeds"}
         </Button>
       </div>
 
@@ -299,12 +364,58 @@ export function NewspaperExplorer() {
 
       {/* Featured */}
       <section className="space-y-3">
-        <div className="flex items-center gap-2">
-          <Flame className="size-5 text-amber-500" />
-          <h2 className="text-lg font-semibold">Featured</h2>
-          <span className="text-sm text-muted-foreground">
-            Top geopolitics, oil & global market stories with the highest impact
-          </span>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <Flame className="size-5 text-amber-500" />
+            <h2 className="text-lg font-semibold">Featured</h2>
+            <span className="text-sm text-muted-foreground">
+              {selectedDate
+                ? `Top stories for ${fmtDayLabel(selectedDate)}`
+                : "Top geopolitics, oil & global market stories with the highest impact"}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            {selectedDate ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 gap-1 text-muted-foreground"
+                onClick={() => setSelectedDate(undefined)}
+              >
+                <X className="size-3.5" />
+                Clear date
+              </Button>
+            ) : null}
+            <Popover>
+              <PopoverTrigger
+                render={
+                  <Button
+                    variant={selectedDate ? "default" : "outline"}
+                    size="sm"
+                    className="gap-2"
+                    aria-label={
+                      selectedDate
+                        ? `Filter by date (${fmtDayLabel(selectedDate)})`
+                        : "Filter by date"
+                    }
+                  />
+                }
+              >
+                <CalendarIcon className="size-4" />
+                {selectedDate ? fmtDayLabel(selectedDate) : "Pick a date"}
+              </PopoverTrigger>
+              <PopoverContent align="end" sideOffset={8} className="w-auto p-0">
+                <Calendar
+                  mode="single"
+                  selected={selectedDate}
+                  onSelect={setSelectedDate}
+                  captionLayout="dropdown"
+                  disabled={{ after: new Date() }}
+                  className="rounded-lg"
+                />
+              </PopoverContent>
+            </Popover>
+          </div>
         </div>
         {loading && !data ? (
           <div className="flex gap-3 overflow-hidden">
@@ -320,8 +431,9 @@ export function NewspaperExplorer() {
           </div>
         ) : (
           <p className="text-sm text-muted-foreground">
-            No featured stories yet — click Refresh feeds to pull the latest
-            headlines.
+            {selectedDate
+              ? `No stories found for ${fmtDayLabel(selectedDate)}.`
+              : "No featured stories yet — click Refresh feeds to pull the latest headlines."}
           </p>
         )}
       </section>
@@ -363,7 +475,9 @@ export function NewspaperExplorer() {
               </div>
             ) : (
               <p className="text-sm text-muted-foreground">
-                No stories in this category yet.
+                {selectedDate
+                  ? `No stories in this category for ${fmtDayLabel(selectedDate)}.`
+                  : "No stories in this category yet."}
               </p>
             )}
           </TabsContent>

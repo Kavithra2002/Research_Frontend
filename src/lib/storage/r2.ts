@@ -1,4 +1,5 @@
 import {
+  DeleteObjectCommand,
   GetObjectCommand,
   ListObjectsV2Command,
   S3Client,
@@ -148,4 +149,19 @@ export async function r2List(
 /** Object key for passing to Python on the backend (Render has files under /app/data or downloads from R2). */
 export function r2ObjectKey(root: StorageRoot, ...segments: string[]): string {
   return toStorageKey(root, ...segments);
+}
+
+export async function r2DeleteFile(
+  root: StorageRoot,
+  ...segments: string[]
+): Promise<boolean> {
+  const Key = toStorageKey(root, ...segments);
+  try {
+    await getR2Client().send(
+      new DeleteObjectCommand({ Bucket: getBucket(), Key }),
+    );
+    return true;
+  } catch {
+    return false;
+  }
 }

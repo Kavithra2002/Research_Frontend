@@ -86,10 +86,10 @@ export const AGENT_CATALOG: AiAgent[] = [
     accent: "from-sky-500/30 via-sky-500/10 to-transparent",
   },
   {
-    id: "john",
+    id: "jone",
     name: "John",
-    role: "Comparison Agent",
-    task: "Compares extracted output against the source report image side by side.",
+    role: "Analytics Agent",
+    task: "Live CSE market summary for your Analytics My List watchlist — focused on the market summary columns you configure.",
     avatarSrc: "/img/john-avatar.png",
     fallback: "JN",
     status: "Online",
@@ -122,14 +122,14 @@ export function getAgentById(id: string): AiAgent | undefined {
 }
 
 /**
- * Agents that are fully implemented and can actually be run. Anything not in
- * this set (e.g. John, Scarlet) is not wired up yet, so it can never go Online
- * and always reports Idle.
+ * Agents with a real configuration panel and workspace wiring. Anything not in
+ * this set (e.g. Scarlet) cannot be added to the AI page yet.
  */
 export const IMPLEMENTED_AGENT_IDS: ReadonlySet<string> = new Set([
   "robin",
   "marian",
   "tuck",
+  "jone",
 ]);
 
 export function isAgentImplemented(id: string): boolean {
@@ -150,6 +150,12 @@ export function getAgentStatus(id: string, running: boolean): AgentStatus {
 const STORAGE_KEY = "ambeon.ai.agents.added";
 export const AGENTS_UPDATED_EVENT = "ambeon:ai-agents-updated";
 
+/** Legacy catalog id → current id. */
+function normalizeStoredAgentId(id: string): string {
+  if (id === "john") return "jone";
+  return id;
+}
+
 function readIds(): string[] {
   if (typeof window === "undefined") return [];
   try {
@@ -157,10 +163,26 @@ function readIds(): string[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter(
-      (id): id is string =>
-        typeof id === "string" && AGENT_CATALOG.some((a) => a.id === id),
-    );
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const rawId of parsed) {
+      if (typeof rawId !== "string") continue;
+      const id = normalizeStoredAgentId(rawId);
+      if (
+        !AGENT_CATALOG.some((a) => a.id === id) ||
+        !IMPLEMENTED_AGENT_IDS.has(id) ||
+        seen.has(id)
+      ) {
+        continue;
+      }
+      seen.add(id);
+      out.push(id);
+    }
+    const cleaned = JSON.stringify(out);
+    if (raw !== cleaned) {
+      localStorage.setItem(STORAGE_KEY, cleaned);
+    }
+    return out;
   } catch {
     return [];
   }
@@ -177,6 +199,7 @@ export function getAddedAgentIds(): string[] {
 }
 
 export function addAgent(id: string) {
+  if (!IMPLEMENTED_AGENT_IDS.has(id)) return;
   const ids = readIds();
   if (ids.includes(id)) return;
   writeIds([...ids, id]);
@@ -223,10 +246,26 @@ function readRunningIds(): string[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter(
-      (id): id is string =>
-        typeof id === "string" && AGENT_CATALOG.some((a) => a.id === id),
-    );
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const rawId of parsed) {
+      if (typeof rawId !== "string") continue;
+      const id = normalizeStoredAgentId(rawId);
+      if (
+        !AGENT_CATALOG.some((a) => a.id === id) ||
+        !IMPLEMENTED_AGENT_IDS.has(id) ||
+        seen.has(id)
+      ) {
+        continue;
+      }
+      seen.add(id);
+      out.push(id);
+    }
+    const cleaned = JSON.stringify(out);
+    if (raw !== cleaned) {
+      localStorage.setItem(RUNNING_KEY, cleaned);
+    }
+    return out;
   } catch {
     return [];
   }

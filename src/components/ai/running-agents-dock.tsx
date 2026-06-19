@@ -24,8 +24,14 @@ const AGENT_ROUTE: Record<string, string> = {
   robin: "/ai/robin",
   tuck: "/ai/tuck",
   marian: "/ai/marian",
+  jone: "/ai/jone",
 };
-const SCHEDULE_AGENTS: ReadonlySet<string> = new Set(["robin", "tuck", "marian"]);
+const SCHEDULE_AGENTS: ReadonlySet<string> = new Set([
+  "robin",
+  "tuck",
+  "marian",
+  "jone",
+]);
 
 type Pos = { x: number; y: number };
 

@@ -37,6 +37,8 @@ export interface AppNotification {
   company?: string;
   /** Click target. */
   href?: string;
+  /** CSE announcement id — used to scroll to the card on /announcement. */
+  announcementId?: string;
   accent?: NotificationAccent;
 }
 

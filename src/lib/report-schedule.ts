@@ -7,7 +7,7 @@ import type { ReportFrequency } from "./email-recipients";
  * scheduler runs the due ones automatically.
  * ────────────────────────────────────────────────────────────────────────── */
 
-export type ScheduleAgent = "robin" | "tuck" | "marian";
+export type ScheduleAgent = "robin" | "tuck" | "marian" | "jone";
 
 export interface ReportSchedulePayload {
   time: string;

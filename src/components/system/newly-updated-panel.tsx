@@ -14,6 +14,7 @@ import {
   RefreshCw,
   SquareArrowOutUpRight,
   Sparkles,
+  Trash2,
   Wand2,
 } from "lucide-react";
 
@@ -166,6 +167,9 @@ export function NewlyUpdatedPanel() {
   const [listLoading, setListLoading] = React.useState(true);
   const [listError, setListError] = React.useState<string | null>(null);
   const [updateConfirmOpen, setUpdateConfirmOpen] = React.useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = React.useState(false);
+  const [deleting, setDeleting] = React.useState(false);
+  const [deleteError, setDeleteError] = React.useState<string | null>(null);
   const [selectedKeys, setSelectedKeys] = React.useState<Set<string>>(
     new Set(),
   );
@@ -400,6 +404,56 @@ export function NewlyUpdatedPanel() {
     setUpdateConfirmOpen(false);
     void runUpdate({ items: selectedItems });
   }, [selectedItems]);
+
+  const handleConfirmDelete = React.useCallback(async () => {
+    if (selectedItems.length === 0) return;
+    setDeleteConfirmOpen(false);
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      const res = await fetch("/api/system/newly-uploaded", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items: selectedItems }),
+      });
+      const data = (await res.json()) as {
+        deleted?: number;
+        notFound?: number;
+        failed?: number;
+        deletedItems?: SelectionItem[];
+        error?: string;
+      };
+      if (!res.ok) {
+        throw new Error(data.error ?? `Delete failed (${res.status})`);
+      }
+      const removedKeys = new Set(
+        (data.deletedItems ?? []).map((it) => selectionKey(it)),
+      );
+      const next = new Set(selectedKeys);
+      for (const k of removedKeys) next.delete(k);
+      setSelectedKeys(next);
+      await replaceReportSelections(
+        allItems.filter((it) => next.has(selectionKey(it))),
+      );
+      await loadList();
+      if ((data.failed ?? 0) > 0 || (data.notFound ?? 0) > 0) {
+        const parts: string[] = [];
+        if ((data.failed ?? 0) > 0) {
+          parts.push(
+            `${data.failed} could not be deleted`,
+          );
+        }
+        if ((data.notFound ?? 0) > 0) {
+          parts.push(`${data.notFound} not found`);
+        }
+        setDeleteError(parts.join("; ") + ".");
+      }
+    } catch (e) {
+      setDeleteError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDeleting(false);
+    }
+  }, [selectedItems, selectedKeys, allItems, loadList]);
 
   const totalReports = React.useMemo(
     () => reports.reduce((acc, r) => acc + r.files.length, 0),
@@ -720,6 +774,44 @@ export function NewlyUpdatedPanel() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Trash2 className="size-4 text-destructive" />
+              Delete selected reports?
+            </DialogTitle>
+            <DialogDescription>
+              This will permanently remove the {selectedCount} selected report
+              {selectedCount === 1 ? "" : "s"} from{" "}
+              <code className="rounded bg-muted px-1 py-0.5 text-[11px]">
+                updated_reports/
+              </code>
+              . This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose
+              render={
+                <Button variant="ghost" size="sm">
+                  Cancel
+                </Button>
+              }
+            />
+            <Button
+              size="sm"
+              variant="destructive"
+              onClick={() => void handleConfirmDelete()}
+              disabled={selectedCount === 0 || deleting}
+            >
+              {deleting ? <Loader2 className="animate-spin" /> : <Trash2 />}
+              Delete {selectedCount} report
+              {selectedCount === 1 ? "" : "s"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Card size="sm" className="flex min-h-0 flex-1 flex-col py-0">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
           <div className="flex items-center gap-2">
@@ -738,7 +830,7 @@ export function NewlyUpdatedPanel() {
                   checked={allSelected}
                   indeterminate={selectedCount > 0 && !allSelected}
                   onCheckedChange={toggleSelectAll}
-                  disabled={selectionSyncing}
+                  disabled={selectionSyncing || deleting}
                   aria-label="Select all reports"
                 />
                 <span className="font-medium">
@@ -750,15 +842,36 @@ export function NewlyUpdatedPanel() {
               </label>
             )}
             {selectedCount > 0 && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 px-2 text-[11px]"
-                onClick={handleClearSelection}
-                disabled={selectionSyncing}
-              >
-                Clear
-              </Button>
+              <>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-[11px]"
+                  onClick={handleClearSelection}
+                  disabled={selectionSyncing || deleting}
+                >
+                  Clear
+                </Button>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  className="h-7 px-2 text-[11px]"
+                  onClick={() => setDeleteConfirmOpen(true)}
+                  disabled={selectionSyncing || deleting}
+                >
+                  {deleting ? (
+                    <Loader2 className="animate-spin" />
+                  ) : (
+                    <Trash2 />
+                  )}
+                  Delete
+                  {selectedCount > 0 && (
+                    <Badge variant="secondary" className="ml-1">
+                      {selectedCount}
+                    </Badge>
+                  )}
+                </Button>
+              </>
             )}
             <span>
               {companyCount} compan{companyCount === 1 ? "y" : "ies"}
@@ -774,6 +887,20 @@ export function NewlyUpdatedPanel() {
               size="sm"
               className="-my-1 h-6 px-2 text-[11px]"
               onClick={() => setSelectionError(null)}
+            >
+              Dismiss
+            </Button>
+          </div>
+        )}
+        {deleteError && (
+          <div className="flex items-start gap-2 border-b border-destructive/30 bg-destructive/5 px-4 py-2 text-xs text-destructive">
+            <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
+            <span className="flex-1">{deleteError}</span>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="-my-1 h-6 px-2 text-[11px]"
+              onClick={() => setDeleteError(null)}
             >
               Dismiss
             </Button>
@@ -852,7 +979,7 @@ export function NewlyUpdatedPanel() {
                           checked={companyAll}
                           indeterminate={companyIndeterminate}
                           onCheckedChange={toggleCompany}
-                          disabled={selectionSyncing}
+                          disabled={selectionSyncing || deleting}
                           aria-label={`Select all files for ${company}`}
                         />
                         <Building2 className="size-4 text-muted-foreground" />
@@ -904,7 +1031,7 @@ export function NewlyUpdatedPanel() {
                                     checked={groupAll}
                                     indeterminate={groupIndeterminate}
                                     onCheckedChange={toggleGroup}
-                                    disabled={selectionSyncing}
+                                    disabled={selectionSyncing || deleting}
                                     aria-label={`Select all ${r.reportType} files for ${company}`}
                                   />
                                   <span>{r.reportType}</span>
@@ -946,7 +1073,7 @@ export function NewlyUpdatedPanel() {
                                         onCheckedChange={() =>
                                           toggleSelection(item)
                                         }
-                                        disabled={selectionSyncing}
+                                        disabled={selectionSyncing || deleting}
                                         aria-label={`Select ${file.name}`}
                                       />
                                       <FileText className="size-4 shrink-0 text-muted-foreground" />

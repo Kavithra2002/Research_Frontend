@@ -39,6 +39,14 @@ export async function listDirectory(
   return local.localList(root, ...segments);
 }
 
+export async function deleteFile(
+  root: StorageRoot,
+  ...segments: string[]
+): Promise<boolean> {
+  if (isR2Storage()) return r2.r2DeleteFile(root, ...segments);
+  return local.localDeleteFile(root, ...segments);
+}
+
 /** Path for Python --pdf (local absolute path, or R2 key when using backend download). */
 export function resolvePdfPath(
   root: StorageRoot,

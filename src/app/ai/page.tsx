@@ -477,7 +477,9 @@ export default function AiPage() {
   // Status is derived centrally so the AI and Configuration pages always agree.
   const agents = React.useMemo(
     () =>
-      AGENT_CATALOG.filter((a) => addedIds.includes(a.id)).map((a) => ({
+      AGENT_CATALOG.filter(
+        (a) => addedIds.includes(a.id) && isAgentImplemented(a.id),
+      ).map((a) => ({
         ...a,
         status: getAgentStatus(a.id, runningSet.has(a.id)),
       })),
@@ -568,15 +570,17 @@ export default function AiPage() {
                           running={runningSet.has(agent.id)}
                           onToggleRun={(next) => handleToggleRun(agent, next)}
                           onActivate={
-                            agent.name === "Scarlet"
+                            agent.id === "scarlet"
                               ? () => setSageOpen(true)
-                              : agent.name === "Robin"
+                              : agent.id === "robin"
                                 ? () => router.push("/ai/robin")
-                                : agent.name === "Tuck"
+                                : agent.id === "tuck"
                                   ? () => router.push("/ai/tuck")
-                                  : agent.name === "Marian"
+                                  : agent.id === "marian"
                                     ? () => router.push("/ai/marian")
-                                    : undefined
+                                    : agent.id === "jone"
+                                      ? () => router.push("/ai/jone")
+                                      : undefined
                           }
                         />
                       ))}

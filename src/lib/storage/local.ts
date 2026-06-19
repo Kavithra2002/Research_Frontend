@@ -102,3 +102,16 @@ export function localAbsolutePath(
 ): string {
   return resolveUnderRoot(root, ...segments);
 }
+
+export async function localDeleteFile(
+  root: StorageRoot,
+  ...segments: string[]
+): Promise<boolean> {
+  const full = resolveUnderRoot(root, ...segments);
+  try {
+    await fs.unlink(full);
+    return true;
+  } catch {
+    return false;
+  }
+}

@@ -2,6 +2,7 @@ import type { AgentChatConfig } from "@/components/ai/agent-chat-workspace";
 import { sendRobinChat } from "@/lib/robin";
 import { sendMarianChat } from "@/lib/marian";
 import { sendTuckChat } from "@/lib/tuck";
+import { sendJoneChat } from "@/lib/jone";
 
 /* ────────────────────────────────────────────────────────────────────────── *
  * Per-agent configuration for the shared full-page chat workspace.
@@ -73,4 +74,25 @@ export const TUCK_CHAT: AgentChatConfig = {
   placeholder: "Ask about the market, financials, sector, employees, branches…",
   send: (messages, signal) => sendTuckChat(messages, signal),
   reportTitleFallback: "Tuck Report",
+};
+
+export const JONE_CHAT: AgentChatConfig = {
+  agent: "jone",
+  name: "John",
+  avatarSrc: "/img/john-avatar.png",
+  fallback: "JO",
+  accent: "violet",
+  greeting: (firstName) =>
+    `Hi ${firstName}! I'm John. I focus on your Analytics **My List** watchlist — live CSE market summary with the columns you configured (price, change, volume, turnover, market cap…). Ask for today's snapshot, movers in your list, or broader market and company questions.`,
+  heroSubtitle:
+    "Your Analytics assistant for My List watchlists — live CSE market summary for the columns you pick, plus market and company Q&A.",
+  suggestions: [
+    "Show my watchlist market summary",
+    "Which of my list stocks gained the most today?",
+    "Compare turnover across my watchlist",
+    "How did the CSE market do today?",
+  ],
+  placeholder: "Ask about your My List, market summary, prices, financials…",
+  send: (messages, signal) => sendJoneChat(messages, signal),
+  reportTitleFallback: "John Report",
 };

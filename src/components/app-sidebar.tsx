@@ -6,8 +6,10 @@ import { usePathname } from "next/navigation";
 import {
   Activity,
   BarChart3,
+  ChevronRight,
   FileText,
   GitCompare,
+  Globe2,
   LayoutDashboard,
   FlaskConical,
   LifeBuoy,
@@ -23,6 +25,11 @@ import {
 } from "lucide-react";
 
 import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
@@ -33,16 +40,74 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
   SidebarRail,
 } from "@/components/ui/sidebar";
+import { cn } from "@/lib/utils";
 import { useAuth } from "@/components/auth/auth-provider";
 import { SidebarCredits } from "@/components/sidebar-credits";
 import type { UserRole } from "@/lib/auth";
+
+type NavIconColor =
+  | "sky"
+  | "rose"
+  | "violet"
+  | "amber"
+  | "emerald"
+  | "orange"
+  | "cyan"
+  | "yellow"
+  | "indigo"
+  | "teal"
+  | "lime"
+  | "fuchsia"
+  | "blue"
+  | "slate";
+
+const navIconColors: Record<NavIconColor, { bg: string; text: string }> = {
+  sky: { bg: "bg-sky-500/15", text: "text-sky-400" },
+  rose: { bg: "bg-rose-500/15", text: "text-rose-400" },
+  violet: { bg: "bg-violet-500/15", text: "text-violet-400" },
+  amber: { bg: "bg-amber-500/15", text: "text-amber-400" },
+  emerald: { bg: "bg-emerald-500/15", text: "text-emerald-400" },
+  orange: { bg: "bg-orange-500/15", text: "text-orange-400" },
+  cyan: { bg: "bg-cyan-500/15", text: "text-cyan-400" },
+  yellow: { bg: "bg-yellow-500/15", text: "text-yellow-400" },
+  indigo: { bg: "bg-indigo-500/15", text: "text-indigo-400" },
+  teal: { bg: "bg-teal-500/15", text: "text-teal-400" },
+  lime: { bg: "bg-lime-500/15", text: "text-lime-400" },
+  fuchsia: { bg: "bg-fuchsia-500/15", text: "text-fuchsia-400" },
+  blue: { bg: "bg-blue-500/15", text: "text-blue-400" },
+  slate: { bg: "bg-slate-500/15", text: "text-slate-400" },
+};
+
+function ColoredNavIcon({
+  icon: Icon,
+  color,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  color: NavIconColor;
+}) {
+  const palette = navIconColors[color];
+  return (
+    <span
+      className={cn(
+        "flex size-5 shrink-0 items-center justify-center rounded-md",
+        palette.bg,
+      )}
+    >
+      <Icon className={cn("size-3.5", palette.text)} />
+    </span>
+  );
+}
 
 type NavItem = {
   title: string;
   url: string;
   icon: React.ComponentType<{ className?: string }>;
+  iconColor: NavIconColor;
   roles: readonly UserRole[];
   exact?: boolean;
 };
@@ -52,40 +117,70 @@ const mainNav: NavItem[] = [
     title: "Extracted Tables",
     url: "/",
     icon: TableProperties,
+    iconColor: "sky",
     roles: ["Admin", "User"],
   },
-  { title: "System", url: "/system", icon: Activity, roles: ["Admin"] },
-  { title: "Test Here", url: "/test-here", icon: FlaskConical, roles: ["Admin"] },
-  { title: "Reports", url: "/reports", icon: FileText, roles: ["Admin", "User"] },
-  { title: "Analytics", url: "/analytics", icon: BarChart3, roles: ["Admin", "User"] },
+  {
+    title: "System",
+    url: "/system",
+    icon: Activity,
+    iconColor: "rose",
+    roles: ["Admin"],
+  },
+  {
+    title: "Development",
+    url: "/test-here",
+    icon: FlaskConical,
+    iconColor: "violet",
+    roles: ["Admin"],
+  },
+  {
+    title: "Reports",
+    url: "/reports",
+    icon: FileText,
+    iconColor: "amber",
+    roles: ["Admin", "User"],
+  },
+  {
+    title: "Analytics",
+    url: "/analytics",
+    icon: BarChart3,
+    iconColor: "emerald",
+    roles: ["Admin", "User"],
+  },
   {
     title: "Comparison",
     url: "/ai/comparison",
     icon: GitCompare,
+    iconColor: "orange",
     roles: ["Admin", "User"],
   },
   {
     title: "Non Financial Data Section",
     url: "/ai/non-financial",
     icon: Newspaper,
+    iconColor: "cyan",
     roles: ["Admin", "User"],
   },
   {
     title: "Announcement",
     url: "/announcement",
     icon: Megaphone,
+    iconColor: "yellow",
     roles: ["Admin", "User"],
   },
   {
     title: "Sector Lens",
     url: "/sector-lens",
     icon: Telescope,
+    iconColor: "indigo",
     roles: ["Admin", "User"],
   },
   {
     title: "Newspaper",
     url: "/newspaper",
     icon: ScrollText,
+    iconColor: "lime",
     roles: ["Admin", "User"],
   },
 ];
@@ -95,6 +190,7 @@ const aiNav: NavItem[] = [
     title: "AI",
     url: "/ai",
     icon: Sparkles,
+    iconColor: "fuchsia",
     roles: ["Admin", "User"],
     exact: true,
   },
@@ -102,20 +198,103 @@ const aiNav: NavItem[] = [
     title: "Configuration",
     url: "/ai/configuration",
     icon: SlidersHorizontal,
+    iconColor: "slate",
     roles: ["Admin", "User"],
   },
 ];
 
 const workspaceNav: NavItem[] = [
-  { title: "Team", url: "#", icon: Users, roles: ["Admin", "User"] },
+  {
+    title: "Team",
+    url: "#",
+    icon: Users,
+    iconColor: "blue",
+    roles: ["Admin", "User"],
+  },
   {
     title: "Settings",
     url: "/settings",
     icon: Settings,
+    iconColor: "slate",
     roles: ["Admin", "User"],
   },
-  { title: "Support", url: "#", icon: LifeBuoy, roles: ["Admin", "User"] },
+  {
+    title: "Support",
+    url: "#",
+    icon: LifeBuoy,
+    iconColor: "rose",
+    roles: ["Admin", "User"],
+  },
 ];
+
+const macroeconomicsSubNav = [
+  {
+    title: "Macroeconomics Indicator",
+    url: "/macroeconomics/indicator",
+  },
+  {
+    title: "Macroeconomics Analysis",
+    url: "/macroeconomics/analysis",
+  },
+  {
+    title: "Macroeconomics Charts",
+    url: "/macroeconomics/charts",
+  },
+] as const;
+
+function MacroeconomicsSidebarItem({
+  isActive,
+}: {
+  isActive: (url: string) => boolean;
+}) {
+  const pathname = usePathname();
+  const macroActive = pathname.startsWith("/macroeconomics");
+  const [open, setOpen] = React.useState(macroActive);
+
+  React.useEffect(() => {
+    if (macroActive) {
+      setOpen(true);
+    }
+  }, [macroActive]);
+
+  return (
+    <Collapsible open={open} onOpenChange={setOpen} className="group/collapsible">
+      <SidebarMenuItem>
+        <CollapsibleTrigger
+          render={
+            <SidebarMenuButton
+              tooltip="Macroeconomics"
+              isActive={macroActive}
+            />
+          }
+        >
+          <ColoredNavIcon icon={Globe2} color="teal" />
+          <span>Macroeconomics</span>
+          <ChevronRight
+            className={cn(
+              "ml-auto transition-transform duration-200",
+              open && "rotate-90",
+            )}
+          />
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <SidebarMenuSub>
+            {macroeconomicsSubNav.map((item) => (
+              <SidebarMenuSubItem key={item.url}>
+                <SidebarMenuSubButton
+                  isActive={isActive(item.url)}
+                  render={<Link href={item.url} />}
+                >
+                  <span>{item.title}</span>
+                </SidebarMenuSubButton>
+              </SidebarMenuSubItem>
+            ))}
+          </SidebarMenuSub>
+        </CollapsibleContent>
+      </SidebarMenuItem>
+    </Collapsible>
+  );
+}
 
 export function AppSidebar({
   ...props
@@ -160,16 +339,21 @@ export function AppSidebar({
           <SidebarGroupContent>
             <SidebarMenu>
               {visibleMainNav.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton
-                    tooltip={item.title}
-                    isActive={isActive(item.url, item.exact)}
-                    render={<Link href={item.url} />}
-                  >
-                    <item.icon />
-                    <span>{item.title}</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
+                <React.Fragment key={item.title}>
+                  {item.title === "Newspaper" ? (
+                    <MacroeconomicsSidebarItem isActive={isActive} />
+                  ) : null}
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      tooltip={item.title}
+                      isActive={isActive(item.url, item.exact)}
+                      render={<Link href={item.url} />}
+                    >
+                      <ColoredNavIcon icon={item.icon} color={item.iconColor} />
+                      <span>{item.title}</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                </React.Fragment>
               ))}
             </SidebarMenu>
           </SidebarGroupContent>
@@ -185,7 +369,7 @@ export function AppSidebar({
                       isActive={isActive(item.url, item.exact)}
                       render={<Link href={item.url} />}
                     >
-                      <item.icon />
+                      <ColoredNavIcon icon={item.icon} color={item.iconColor} />
                       <span>{item.title}</span>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
@@ -206,7 +390,7 @@ export function AppSidebar({
                       isActive={isActive(item.url, item.exact)}
                       render={<Link href={item.url} />}
                     >
-                      <item.icon />
+                      <ColoredNavIcon icon={item.icon} color={item.iconColor} />
                       <span>{item.title}</span>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
@@ -221,7 +405,7 @@ export function AppSidebar({
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton tooltip="Account" render={<Link href="#" />}>
-              <Users />
+              <ColoredNavIcon icon={Users} color="blue" />
               <span>Account</span>
             </SidebarMenuButton>
           </SidebarMenuItem>

@@ -70,3 +70,33 @@ export async function deleteChatSession(
   );
   return res.removed;
 }
+
+const ACTIVE_SESSION_PREFIX = "agent-chat-active:";
+
+/** Last in-progress session for an agent (survives route changes within the tab). */
+export function getActiveSessionId(agent: string): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return sessionStorage.getItem(`${ACTIVE_SESSION_PREFIX}${agent}`);
+  } catch {
+    return null;
+  }
+}
+
+export function setActiveSessionId(agent: string, sessionId: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.setItem(`${ACTIVE_SESSION_PREFIX}${agent}`, sessionId);
+  } catch {
+    // storage full or unavailable
+  }
+}
+
+export function clearActiveSessionId(agent: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.removeItem(`${ACTIVE_SESSION_PREFIX}${agent}`);
+  } catch {
+    // ignore
+  }
+}

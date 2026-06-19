@@ -186,7 +186,8 @@ export function NotificationFeed() {
           fallback: company.slice(0, 2).toUpperCase(),
           title,
           body: `${company}${row.symbol ? ` (${row.symbol})` : ""} · Colombo Stock Exchange`,
-          href: "/announcement",
+          href: `/announcement?ann=${encodeURIComponent(id)}&tab=approved`,
+          announcementId: id,
           accent: "amber",
           createdAt: annTime(row),
         });

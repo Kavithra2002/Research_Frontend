@@ -1,4 +1,3 @@
-import { Suspense } from "react";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -18,11 +17,10 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { HeaderLiveTicker } from "@/components/live-ticker/header-live-ticker";
 import { AuthStatus } from "@/components/auth/auth-status";
 import { RoleGate } from "@/components/auth/role-gate";
-import { AnnouncementExplorer } from "@/components/announcement/announcement-explorer";
 
 export const dynamic = "force-dynamic";
 
-export default function AnnouncementPage() {
+export default function MacroeconomicsAnalysisPage() {
   return (
     <RoleGate allow={["Admin", "User"]}>
       <SidebarProvider>
@@ -37,8 +35,12 @@ export default function AnnouncementPage() {
                   <BreadcrumbLink href="/">Dashboard</BreadcrumbLink>
                 </BreadcrumbItem>
                 <BreadcrumbSeparator className="hidden md:block" />
+                <BreadcrumbItem className="hidden md:block">
+                  <BreadcrumbPage>Macroeconomics</BreadcrumbPage>
+                </BreadcrumbItem>
+                <BreadcrumbSeparator className="hidden md:block" />
                 <BreadcrumbItem>
-                  <BreadcrumbPage>Announcement</BreadcrumbPage>
+                  <BreadcrumbPage>Macroeconomics Analysis</BreadcrumbPage>
                 </BreadcrumbItem>
               </BreadcrumbList>
             </Breadcrumb>
@@ -48,10 +50,15 @@ export default function AnnouncementPage() {
               <ThemeToggle />
             </div>
           </header>
-          <main className="flex min-w-0 flex-col px-4 pb-4 pt-2">
-            <Suspense fallback={null}>
-              <AnnouncementExplorer />
-            </Suspense>
+          <main className="flex min-w-0 flex-col gap-3 px-4 pb-4 pt-3">
+            <div>
+              <h1 className="font-heading text-lg font-semibold">
+                Macroeconomics Analysis
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Macroeconomic analysis and insights will appear here.
+              </p>
+            </div>
           </main>
         </SidebarInset>
       </SidebarProvider>

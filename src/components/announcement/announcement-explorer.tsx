@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useSearchParams } from "next/navigation";
 import {
   Activity,
   AlertCircle,
@@ -713,14 +714,36 @@ function ActiveList({ rows }: { rows: ActiveTradeRow[] }) {
   );
 }
 
-function AnnouncementCard({ row }: { row: AnnouncementRow }) {
+function rowAnnId(row: AnnouncementRow): string {
+  return String(row.announcementId ?? row.id ?? "");
+}
+
+function announcementDomId(id: string): string {
+  return `ann-${id}`;
+}
+
+function AnnouncementCard({
+  row,
+  highlighted,
+}: {
+  row: AnnouncementRow;
+  highlighted?: boolean;
+}) {
   const category = decodeMojibake(row.announcementCategory ?? "");
   const company = decodeMojibake(
     row.company ?? row.companyName ?? "Unknown Company",
   );
   const remarks = decodeMojibake(row.remarks ?? row.title ?? "");
+  const annId = rowAnnId(row);
   return (
-    <div className="flex gap-3 rounded-lg border bg-card p-3 transition-colors hover:bg-muted/40">
+    <div
+      id={annId ? announcementDomId(annId) : undefined}
+      className={cn(
+        "flex scroll-mt-20 gap-3 rounded-lg border bg-card p-3 transition-[box-shadow,background-color] hover:bg-muted/40",
+        highlighted &&
+          "ring-2 ring-primary/80 ring-offset-2 ring-offset-background",
+      )}
+    >
       <CompanyLogo path={row.logoUrl} alt={company} size={40} />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
@@ -1071,12 +1094,20 @@ function DailyHistoryTable({ rows }: { rows: DailyMarketRecord[] }) {
 // ---------------------------------------------------------------------------
 
 export function AnnouncementExplorer() {
+  const searchParams = useSearchParams();
+  const targetAnnId = searchParams.get("ann");
+  const targetTab = searchParams.get("tab");
+  const [highlightedAnnId, setHighlightedAnnId] = React.useState<string | null>(
+    null,
+  );
   const [data, setData] = React.useState<Snapshot>(EMPTY_SNAPSHOT);
   const [loading, setLoading] = React.useState(true);
   const [refreshing, setRefreshing] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = React.useState<Date | null>(null);
-  const [activeAnnTab, setActiveAnnTab] = React.useState<string>("approved");
+  const [activeAnnTab, setActiveAnnTab] = React.useState<string>(
+    targetTab ?? "approved",
+  );
   const [activeMoverTab, setActiveMoverTab] = React.useState<string>("gainers");
   const [priceQuery, setPriceQuery] = React.useState("");
 
@@ -1202,6 +1233,38 @@ export function AnnouncementExplorer() {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- initial data load on mount
     void load("initial");
   }, [load]);
+
+  // Deep-link from notifications: switch tab, then scroll to the announcement card.
+  React.useEffect(() => {
+    if (loading || !targetAnnId) return;
+    if (targetTab) setActiveAnnTab(targetTab);
+
+    let cancelled = false;
+    let highlightTimer: ReturnType<typeof window.setTimeout> | undefined;
+
+    const scrollToTarget = () => {
+      const el = document.getElementById(announcementDomId(targetAnnId));
+      if (!el || cancelled) return false;
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      setHighlightedAnnId(targetAnnId);
+      highlightTimer = window.setTimeout(() => {
+        if (!cancelled) setHighlightedAnnId(null);
+      }, 2500);
+      return true;
+    };
+
+    const retryTimers = [0, 120, 350, 700].map((delay) =>
+      window.setTimeout(() => {
+        if (!cancelled) scrollToTarget();
+      }, delay),
+    );
+
+    return () => {
+      cancelled = true;
+      for (const id of retryTimers) window.clearTimeout(id);
+      if (highlightTimer) window.clearTimeout(highlightTimer);
+    };
+  }, [loading, targetAnnId, targetTab, data.approved.length]);
 
   // Derived aggregate stats.
   const totals = React.useMemo(() => {
@@ -1431,7 +1494,7 @@ export function AnnouncementExplorer() {
       ) : null}
 
       {/* Announcements */}
-      <Card size="sm" className="py-0">
+      <Card size="sm" className="py-0" id="announcements-section">
         <Tabs
           value={activeAnnTab}
           onValueChange={setActiveAnnTab}
@@ -1512,21 +1575,29 @@ export function AnnouncementExplorer() {
             value="approved"
             rows={data.approved}
             emptyLabel="No approved announcements"
+            scrollToAnnId={activeAnnTab === "approved" ? targetAnnId : null}
+            highlightedAnnId={highlightedAnnId}
           />
           <AnnouncementTab
             value="new-listings"
             rows={data.newListings}
             emptyLabel="No new listing notices"
+            scrollToAnnId={activeAnnTab === "new-listings" ? targetAnnId : null}
+            highlightedAnnId={highlightedAnnId}
           />
           <AnnouncementTab
             value="buy-in"
             rows={data.buyIn}
             emptyLabel="No buy-in board announcements"
+            scrollToAnnId={activeAnnTab === "buy-in" ? targetAnnId : null}
+            highlightedAnnId={highlightedAnnId}
           />
           <AnnouncementTab
             value="non-compliance"
             rows={data.nonCompliance}
             emptyLabel="No non-compliance items"
+            scrollToAnnId={activeAnnTab === "non-compliance" ? targetAnnId : null}
+            highlightedAnnId={highlightedAnnId}
           />
           <DocumentTab
             value="financial"
@@ -1547,6 +1618,8 @@ export function AnnouncementExplorer() {
             value="covid"
             rows={data.covid}
             emptyLabel="No COVID-related announcements"
+            scrollToAnnId={activeAnnTab === "covid" ? targetAnnId : null}
+            highlightedAnnId={highlightedAnnId}
           />
         </Tabs>
       </Card>
@@ -1649,16 +1722,29 @@ function CappedAnnouncementList<T>({
   emptyLabel,
   renderItem,
   keyFn,
+  scrollToAnnId,
+  getAnnId,
 }: {
   items: T[];
   emptyLabel: string;
   renderItem: (item: T, index: number) => React.ReactNode;
   keyFn: (item: T, index: number) => string;
+  scrollToAnnId?: string | null;
+  getAnnId?: (item: T) => string;
 }) {
-  const [expanded, setExpanded] = React.useState(false);
+  const targetIndex =
+    scrollToAnnId && getAnnId
+      ? items.findIndex((item) => getAnnId(item) === scrollToAnnId)
+      : -1;
+  const needsExpand = targetIndex >= ANNOUNCEMENT_LIST_LIMIT;
+  const [expanded, setExpanded] = React.useState(needsExpand);
   const listRef = React.useRef<HTMLDivElement>(null);
   const hasMore = items.length > ANNOUNCEMENT_LIST_LIMIT;
   const visible = expanded ? items : items.slice(0, ANNOUNCEMENT_LIST_LIMIT);
+
+  React.useEffect(() => {
+    if (needsExpand) setExpanded(true);
+  }, [needsExpand]);
 
   const scrollDown = () => {
     listRef.current?.scrollBy({ top: 280, behavior: "smooth" });
@@ -1716,10 +1802,14 @@ function AnnouncementTab({
   value,
   rows,
   emptyLabel,
+  scrollToAnnId,
+  highlightedAnnId,
 }: {
   value: string;
   rows: AnnouncementRow[];
   emptyLabel: string;
+  scrollToAnnId?: string | null;
+  highlightedAnnId?: string | null;
 }) {
   return (
     <TabsContent value={value} className="px-4 pb-4 pt-3">
@@ -1727,10 +1817,17 @@ function AnnouncementTab({
         key={value}
         items={rows}
         emptyLabel={emptyLabel}
+        scrollToAnnId={scrollToAnnId}
+        getAnnId={rowAnnId}
         keyFn={(row, i) =>
           `${value}-${row.announcementId ?? "x"}-${row.id ?? "x"}-${i}`
         }
-        renderItem={(row) => <AnnouncementCard row={row} />}
+        renderItem={(row) => (
+          <AnnouncementCard
+            row={row}
+            highlighted={highlightedAnnId === rowAnnId(row)}
+          />
+        )}
       />
     </TabsContent>
   );

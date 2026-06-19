@@ -98,6 +98,11 @@ function formatDate(iso: string) {
   }
 }
 
+/** Demo companies (MongoDB) only ship annual report captures — comparison is annual-only. */
+function yearsWithAnnual(company: Company | null | undefined): YearNode[] {
+  return (company?.years ?? []).filter((y) => y.annual != null);
+}
+
 export function ComparisonExplorer() {
   const [dataSource, setDataSource] = React.useState<
     "mongodb" | "filesystem" | null
@@ -165,26 +170,41 @@ export function ComparisonExplorer() {
     return company.years.find((y) => y.year === selectedYear);
   }, [company, selectedYear]);
 
+  const comparisonYears = React.useMemo(
+    () => (useMongoTree ? yearsWithAnnual(company) : company?.years ?? []),
+    [company, useMongoTree],
+  );
+
   React.useEffect(() => {
     if (!company?.years?.length) {
       setSelectedYear(null);
       return;
     }
-    const years = company.years.map((y) => y.year);
-    if (selectedYear == null || !years.includes(selectedYear)) {
-      setSelectedYear(years[0] ?? null);
+    const eligible = comparisonYears.map((y) => y.year);
+    if (eligible.length === 0) {
+      setSelectedYear(null);
+      return;
     }
-  }, [company, selectedYear]);
+    if (selectedYear == null || !eligible.includes(selectedYear)) {
+      setSelectedYear(eligible[0] ?? null);
+    }
+  }, [company, selectedYear, comparisonYears]);
 
+  // Demo companies: annual reports only (captures exist under Annual/<year>/).
   const availablePeriods: Period[] = useMongoTree
-    ? yearNode?.availablePeriods ?? []
-    : company?.availablePeriods ?? [];
-  const showPeriodToggle = availablePeriods.length >= 1;
+    ? yearNode?.annual != null
+      ? ["Annual"]
+      : []
+    : (company?.availablePeriods ?? []);
+  const showPeriodToggle = !useMongoTree && availablePeriods.length > 1;
 
-  const effectivePeriod = React.useMemo(() => {
-    if (availablePeriods.length === 0) return period;
-    return availablePeriods.includes(period) ? period : availablePeriods[0];
-  }, [availablePeriods, period]);
+  const effectivePeriod: Period = useMongoTree ? "Annual" : period;
+
+  React.useEffect(() => {
+    if (useMongoTree && period !== "Annual") {
+      setPeriod("Annual");
+    }
+  }, [useMongoTree, period]);
 
   const yearSummary = periodSummaryFor(yearNode, effectivePeriod);
   const activeStatements = useMongoTree
@@ -204,11 +224,31 @@ export function ComparisonExplorer() {
       : company?.generatedAt ?? null;
 
   React.useEffect(() => {
-    if (!company) return;
+    if (!company || useMongoTree) return;
     if (availablePeriods.length > 0 && !availablePeriods.includes(period)) {
       setPeriod(availablePeriods[0]);
     }
-  }, [company, period, availablePeriods]);
+  }, [company, period, availablePeriods, useMongoTree]);
+
+  const pickerCompanies = React.useMemo(
+    () =>
+      companies.map((c) => {
+        const isMongoCompany =
+          dataSource === "mongodb" && (c.years?.length ?? 0) > 0;
+        const annualYear = yearsWithAnnual(c)[0];
+        const statements = isMongoCompany
+          ? (annualYear?.annual?.statements ?? [])
+          : c.statements;
+        return {
+          name: c.name,
+          displayName: c.displayName,
+          statements,
+          totalReports: c.totalReports,
+          model: annualYear?.annual?.model ?? c.model,
+        };
+      }),
+    [companies, dataSource],
+  );
 
   React.useEffect(() => {
     if (!selectedCompany) {
@@ -335,7 +375,7 @@ export function ComparisonExplorer() {
       <div className="sticky top-14 z-20 flex flex-wrap items-center justify-between gap-2 rounded-xl border bg-card px-3 py-1.5 shadow-sm ring-1 ring-foreground/10 backdrop-blur supports-[backdrop-filter]:bg-card/95">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
           <CompanyPicker
-            companies={companies}
+            companies={pickerCompanies}
             selectedCompany={selectedCompany}
             onSelectCompany={setSelectedCompany}
             loading={loading}
@@ -353,13 +393,13 @@ export function ComparisonExplorer() {
               {company.sector}
             </Badge>
           ) : null}
-          {company && useMongoTree && (company.years?.length ?? 0) > 0 ? (
+          {company && useMongoTree && comparisonYears.length > 0 ? (
             <div
               role="tablist"
               aria-label="Report year"
               className="inline-flex items-center gap-0.5 rounded-md border bg-muted/40 p-0.5"
             >
-              {company.years!.map((y) => {
+              {comparisonYears.map((y) => {
                 const active = selectedYear === y.year;
                 return (
                   <button

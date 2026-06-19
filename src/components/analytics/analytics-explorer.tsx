@@ -8,6 +8,7 @@ import {
   Check,
   ChevronsUpDown,
   Download,
+  FileDown,
   Loader2,
   Plus,
   RefreshCw,
@@ -33,6 +34,19 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import {
+  loadWatchlists,
+  makeWatchlistId,
+  saveWatchlists,
+  type AnalyticsWatchlist,
+} from "@/lib/analytics-watchlists";
+import {
+  toTradeSummaryRow,
+} from "@/lib/market-summary-columns";
+import { downloadTradeSummaryCsv } from "@/lib/trade-summary-export";
+import { downloadWatchlistMarketPdf } from "@/lib/watchlist-market-pdf";
+
+type Watchlist = AnalyticsWatchlist;
 import {
   LiveMarketChart,
   type LivePoint,
@@ -346,101 +360,38 @@ const SCREEN_CATEGORIES: ScreenCategory[] = [
 const ALL_SCREENS = SCREEN_CATEGORIES.flatMap((c) => c.screens);
 
 // ---------------------------------------------------------------------------
-// Custom watchlists (user-defined company groups, persisted to localStorage)
-// ---------------------------------------------------------------------------
 
-type Watchlist = { id: string; name: string; symbols: string[] };
-
-const WATCHLIST_STORAGE_KEY = "ambeon.analytics.watchlists.v1";
-
-function loadWatchlists(): Watchlist[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = window.localStorage.getItem(WATCHLIST_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter(
-      (w): w is Watchlist =>
-        !!w &&
-        typeof (w as Watchlist).id === "string" &&
-        typeof (w as Watchlist).name === "string" &&
-        Array.isArray((w as Watchlist).symbols),
-    );
-  } catch {
-    return [];
-  }
+function stockToTradeSummary(r: StockRow) {
+  return toTradeSummaryRow({
+    name: r.name,
+    symbol: r.symbol,
+    shareVolume: r.shareVolume,
+    tradeVolume: r.tradeVolume,
+    previousClose: r.previousClose,
+    open: r.open,
+    high: r.high,
+    low: r.low,
+    price: r.price,
+    change: r.change,
+    changePct: r.changePct,
+  });
 }
 
-function saveWatchlists(list: Watchlist[]) {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(WATCHLIST_STORAGE_KEY, JSON.stringify(list));
-  } catch {
-    // Ignore quota / serialization errors — watchlists are a convenience.
-  }
-}
-
-function makeWatchlistId(): string {
-  return `wl_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
-}
-
-function csvCell(v: string | number | null | undefined): string {
-  if (v == null) return "";
-  const s = String(v);
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-}
-
-// Export the live trade summary (one row per company) for a watchlist as CSV.
 function downloadWatchlistCsv(watchlist: Watchlist, universe: StockRow[]) {
   if (typeof window === "undefined") return;
   const set = new Set(watchlist.symbols);
-  const rows = universe.filter((r) => set.has(r.symbol));
-  const headers = [
-    "Company Name",
-    "Symbol",
-    "Share Volume",
-    "Trade Volume",
-    "Previous Close (Rs.)",
-    "Open (Rs.)",
-    "High (Rs.)",
-    "Low (Rs.)",
-    "Last Trade (Rs.)",
-    "Change (Rs.)",
-    "Change (%)",
-  ];
-  const lines = [
-    headers.join(","),
-    ...rows.map((r) =>
-      [
-        r.name,
-        r.symbol,
-        r.shareVolume,
-        r.tradeVolume,
-        r.previousClose,
-        r.open,
-        r.high,
-        r.low,
-        r.price,
-        r.change,
-        r.changePct,
-      ]
-        .map(csvCell)
-        .join(","),
-    ),
-  ];
-  const csv = lines.join("\r\n");
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const stamp = new Date().toISOString().slice(0, 10);
-  const safeName = watchlist.name.replace(/[^a-z0-9-_]+/gi, "_");
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `${safeName}_trade_summary_${stamp}.csv`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+  const rows = universe.filter((r) => set.has(r.symbol)).map(stockToTradeSummary);
+  downloadTradeSummaryCsv(watchlist.name, rows);
+}
+
+function downloadWatchlistPdf(
+  watchlist: Watchlist,
+  universe: StockRow[],
+  asOf?: string | null,
+) {
+  const set = new Set(watchlist.symbols);
+  const rows = universe.filter((r) => set.has(r.symbol)).map(stockToTradeSummary);
+  downloadWatchlistMarketPdf(watchlist.name, rows, asOf);
 }
 
 // ---------------------------------------------------------------------------
@@ -480,8 +431,59 @@ const VIEWS: { id: string; label: string; columns: Column[] }[] = [
     columns: [
       COMPANY_COL,
       {
+        key: "symbol",
+        label: "Symbol",
+        align: "left",
+        value: () => null,
+        render: (r) => (
+          <span className="font-mono text-xs text-muted-foreground">{r.symbol}</span>
+        ),
+      },
+      {
+        key: "shareVolume",
+        label: "Share Volume",
+        align: "right",
+        value: (r) => r.shareVolume,
+        render: (r) => fmtInt(r.shareVolume),
+      },
+      {
+        key: "tradeVolume",
+        label: "Trades",
+        align: "right",
+        value: (r) => r.tradeVolume,
+        render: (r) => fmtInt(r.tradeVolume),
+      },
+      {
+        key: "previousClose",
+        label: "Prev close",
+        align: "right",
+        value: (r) => r.previousClose,
+        render: (r) => fmtNum(r.previousClose),
+      },
+      {
+        key: "open",
+        label: "Open",
+        align: "right",
+        value: (r) => r.open,
+        render: (r) => fmtNum(r.open),
+      },
+      {
+        key: "high",
+        label: "High",
+        align: "right",
+        value: (r) => r.high,
+        render: (r) => fmtNum(r.high),
+      },
+      {
+        key: "low",
+        label: "Low",
+        align: "right",
+        value: (r) => r.low,
+        render: (r) => fmtNum(r.low),
+      },
+      {
         key: "price",
-        label: "Price",
+        label: "Last",
         align: "right",
         value: (r) => r.price,
         render: (r) => fmtNum(r.price),
@@ -503,27 +505,6 @@ const VIEWS: { id: string; label: string; columns: Column[] }[] = [
         align: "right",
         value: (r) => r.changePct,
         render: (r) => <ChangeBadge value={r.changePct} />,
-      },
-      {
-        key: "shareVolume",
-        label: "Volume",
-        align: "right",
-        value: (r) => r.shareVolume,
-        render: (r) => fmtCompact(r.shareVolume),
-      },
-      {
-        key: "turnover",
-        label: "Turnover",
-        align: "right",
-        value: (r) => r.turnover,
-        render: (r) => fmtCompact(r.turnover),
-      },
-      {
-        key: "marketCap",
-        label: "Market cap",
-        align: "right",
-        value: (r) => r.marketCap,
-        render: (r) => fmtCompact(r.marketCap),
       },
     ],
   },
@@ -1369,9 +1350,20 @@ export function AnalyticsExplorer() {
                       onClick={() => downloadWatchlistCsv(w, universe)}
                       className="flex items-center justify-center bg-muted/40 px-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                       aria-label={`Download ${w.name} trade summary CSV`}
-                      title="Download trade summary CSV"
+                      title="Download CSV"
                     >
                       <Download className="size-3" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        downloadWatchlistPdf(w, universe, data?.asOf)
+                      }
+                      className="flex items-center justify-center bg-muted/40 px-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                      aria-label={`Download ${w.name} market summary PDF`}
+                      title="Download PDF"
+                    >
+                      <FileDown className="size-3" />
                     </button>
                   </div>
                 );

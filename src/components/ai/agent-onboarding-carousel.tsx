@@ -28,6 +28,7 @@ import {
   AGENT_CATALOG,
   addAgent,
   getAgentById,
+  isAgentImplemented,
   removeAgent,
   statusStyle,
   useAddedAgentIds,
@@ -75,7 +76,8 @@ export function AgentOnboardingCarousel() {
 
   const count = agents.length;
   const activeAgent = agents[active];
-  const isAdded = addedIds.includes(activeAgent.id);
+  const workspaceReady = isAgentImplemented(activeAgent.id);
+  const isAdded = workspaceReady && addedIds.includes(activeAgent.id);
 
   const spacing = Math.min(150, Math.max(92, width * 0.2));
   const arc = 16;
@@ -160,6 +162,7 @@ export function AgentOnboardingCarousel() {
   }, []);
 
   const toggleAdd = () => {
+    if (!workspaceReady) return;
     // Removing is immediate; adding asks for confirmation (credits charged).
     if (isAdded) {
       removeAgent(activeAgent.id);
@@ -351,9 +354,12 @@ export function AgentOnboardingCarousel() {
           variant={isAdded ? "secondary" : "default"}
           size="sm"
           onClick={toggleAdd}
+          disabled={!workspaceReady}
           className="shrink-0"
         >
-          {isAdded ? (
+          {!workspaceReady ? (
+            "Coming soon"
+          ) : isAdded ? (
             <>
               <Check className="size-3.5" />
               Added
