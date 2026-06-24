@@ -7,6 +7,7 @@ import {
   Activity,
   BarChart3,
   ChevronRight,
+  Database,
   FileText,
   GitCompare,
   Globe2,
@@ -183,6 +184,20 @@ const mainNav: NavItem[] = [
     iconColor: "lime",
     roles: ["Admin", "User"],
   },
+  {
+    title: "DB",
+    url: "/db",
+    icon: Database,
+    iconColor: "slate",
+    roles: ["Admin", "User"],
+  },
+  {
+    title: "Macroeconomics",
+    url: "/macroeconomics/indicator",
+    icon: Globe2,
+    iconColor: "teal",
+    roles: ["Admin", "User"],
+  },
 ];
 
 const aiNav: NavItem[] = [
@@ -340,19 +355,20 @@ export function AppSidebar({
             <SidebarMenu>
               {visibleMainNav.map((item) => (
                 <React.Fragment key={item.title}>
-                  {item.title === "Newspaper" ? (
+                  {item.title === "Macroeconomics" ? (
                     <MacroeconomicsSidebarItem isActive={isActive} />
-                  ) : null}
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      tooltip={item.title}
-                      isActive={isActive(item.url, item.exact)}
-                      render={<Link href={item.url} />}
-                    >
-                      <ColoredNavIcon icon={item.icon} color={item.iconColor} />
-                      <span>{item.title}</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
+                  ) : (
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        tooltip={item.title}
+                        isActive={isActive(item.url, item.exact)}
+                        render={<Link href={item.url} />}
+                      >
+                        <ColoredNavIcon icon={item.icon} color={item.iconColor} />
+                        <span>{item.title}</span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  )}
                 </React.Fragment>
               ))}
             </SidebarMenu>

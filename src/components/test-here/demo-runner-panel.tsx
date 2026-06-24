@@ -27,6 +27,16 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
+import {
+  cancelDemoRun,
+  getDemoRunProgressPct,
+  getServerSnapshot,
+  getSnapshot,
+  getTotalUploadedTables,
+  runDemo,
+  subscribe,
+  type DemoRunItem,
+} from "@/components/test-here/demo-run-store";
 
 type DemoFile = {
   name: string;
@@ -46,29 +56,7 @@ type ListResponse = { root?: string; companies?: DemoCompany[]; error?: string }
 
 type Period = "Annual" | "Quarterly";
 
-type SelectedItem = {
-  company: string;
-  report_type: Period;
-  file_name: string;
-  rel_path: string;
-  group: string;
-};
-
-type DbUpload = {
-  company: string;
-  reportType: string;
-  group: string;
-  year: string;
-  status: string;
-  tables: number;
-  error?: string | null;
-};
-
-type Summary = {
-  ok: number;
-  failed: number;
-  uploaded: boolean;
-};
+type SelectedItem = DemoRunItem;
 
 function formatBytes(bytes: number) {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
@@ -91,20 +79,15 @@ export function DemoRunnerPanel() {
     new Map(),
   );
 
-  const [running, setRunning] = React.useState(false);
-  const [log, setLog] = React.useState<string[]>([]);
-  const [uploads, setUploads] = React.useState<DbUpload[]>([]);
-  const [summary, setSummary] = React.useState<Summary | null>(null);
-  // Bar progress is driven by completed report "stages" (one per selected
-  // file). `total` is the number of selected reports; `done` counts finished
-  // extractions. `activeStage` adds a partial bump while one is in flight so
-  // the bar visibly advances even for a single long-running report.
-  const [progress, setProgress] = React.useState<{ done: number; total: number } | null>(
-    null,
-  );
-  const [activeStage, setActiveStage] = React.useState(false);
-  const [runError, setRunError] = React.useState<string | null>(null);
-  const abortRef = React.useRef<AbortController | null>(null);
+  const {
+    running,
+    log,
+    uploads,
+    summary,
+    progress,
+    activeStage,
+    error: runError,
+  } = React.useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -175,158 +158,18 @@ export function DemoRunnerPanel() {
 
   const handleRun = React.useCallback(async () => {
     if (selectedCount === 0 || running) return;
-    setRunning(true);
-    setLog([]);
-    setUploads([]);
-    setSummary(null);
-    setProgress(null);
-    setActiveStage(false);
-    setRunError(null);
-
-    const controller = new AbortController();
-    abortRef.current = controller;
-
-    const items = Array.from(selected.values());
-
-    try {
-      const res = await fetch("/api/demo/run", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items }),
-        signal: controller.signal,
-      });
-      if (!res.ok || !res.body) {
-        const txt = await res.text().catch(() => "");
-        throw new Error(txt || `Request failed (${res.status})`);
-      }
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buf = "";
-
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf += decoder.decode(value, { stream: true });
-        let nl = buf.indexOf("\n");
-        while (nl !== -1) {
-          const line = buf.slice(0, nl).trim();
-          buf = buf.slice(nl + 1);
-          if (line) handleEvent(line);
-          nl = buf.indexOf("\n");
-        }
-      }
-      if (buf.trim()) handleEvent(buf.trim());
-    } catch (e) {
-      if ((e as Error).name !== "AbortError") {
-        setRunError(e instanceof Error ? e.message : String(e));
-      }
-    } finally {
-      setRunning(false);
-      abortRef.current = null;
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    await runDemo(Array.from(selected.values()));
   }, [selected, selectedCount, running]);
 
-  // Newest entry first; keep the list bounded.
-  const pushLog = React.useCallback((msg: string) => {
-    const stamp = new Date().toLocaleTimeString();
-    setLog((p) => [`${stamp}  ${msg}`, ...p].slice(0, 500));
-  }, []);
-
-  const handleEvent = React.useCallback(
-    (line: string) => {
-      let evt: Record<string, unknown>;
-      try {
-        evt = JSON.parse(line) as Record<string, unknown>;
-      } catch {
-        pushLog(line);
-        return;
-      }
-      const type = String(evt.type ?? "");
-      switch (type) {
-        case "start":
-          setProgress({ done: 0, total: Number(evt.totalFiles ?? 0) });
-          setActiveStage(false);
-          pushLog(`Starting: ${evt.totalFiles} report(s)`);
-          break;
-        case "company-start":
-          pushLog(
-            `Extracting ${evt.company} (A:${evt.annualCount} Q:${evt.quarterlyCount})...`,
-          );
-          break;
-        case "stage-start":
-          setActiveStage(true);
-          pushLog(`  ${evt.kind} · ${evt.group || evt.fileName}: extracting...`);
-          break;
-        case "stage-done":
-          // One report finished extracting → advance the bar by a full unit.
-          setActiveStage(false);
-          setProgress((prev) =>
-            prev ? { ...prev, done: Math.min(prev.total, prev.done + 1) } : prev,
-          );
-          pushLog(`  ${evt.kind} · ${evt.group || ""} extraction: ${evt.status}`);
-          break;
-        case "db-upload": {
-          const yq = [evt.year, evt.quarter].filter(Boolean).join(" ");
-          setUploads((p) => [
-            {
-              company: String(evt.company ?? ""),
-              reportType: String(evt.reportType ?? ""),
-              group: String(evt.group ?? ""),
-              year: yq,
-              status: String(evt.status ?? ""),
-              tables: Number(evt.tables ?? 0),
-              error: (evt.error as string) ?? null,
-            },
-            ...p,
-          ]);
-          pushLog(
-            `  DB upload (${evt.reportType} ${yq}): ${evt.status} — ${evt.tables ?? 0} table(s)`,
-          );
-          break;
-        }
-        case "company-done":
-          break;
-        case "log":
-          pushLog(String(evt.message ?? ""));
-          break;
-        case "error":
-          setRunError(String(evt.message ?? "Unknown error"));
-          pushLog(`ERROR: ${evt.message ?? ""}`);
-          break;
-        case "done":
-          setSummary({
-            ok: Number(evt.ok ?? 0),
-            failed: Number(evt.failed ?? 0),
-            uploaded: Boolean(evt.uploaded),
-          });
-          setActiveStage(false);
-          setProgress((prev) => (prev ? { ...prev, done: prev.total } : prev));
-          pushLog(`Done — ${evt.ok} ok, ${evt.failed} failed.`);
-          break;
-        default:
-          break;
-      }
-    },
-    [pushLog],
-  );
-
   const handleCancel = React.useCallback(() => {
-    abortRef.current?.abort();
-    fetch("/api/demo/run", { method: "DELETE" }).catch(() => {});
-    setRunning(false);
+    void cancelDemoRun();
   }, []);
 
-  const totalUploadedTables = uploads.reduce((n, u) => n + u.tables, 0);
+  const totalUploadedTables = getTotalUploadedTables(uploads);
   const hasTotal = !!progress && progress.total > 0;
-  // Add a partial unit while a stage is extracting so the bar keeps moving
-  // forward (never snapping back to 0) during a single long report.
+  const progressPct = getDemoRunProgressPct(progress, activeStage);
   const displayDone = progress
     ? Math.min(progress.total, progress.done + (activeStage ? 0.6 : 0))
-    : 0;
-  const progressPct = hasTotal
-    ? Math.min(100, Math.round((displayDone / progress!.total) * 100))
     : 0;
   // Before we know the total (or before the first stage starts) show an
   // animated indeterminate bar instead of an empty/idle one.

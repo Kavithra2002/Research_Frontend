@@ -71,6 +71,27 @@ function periodSummaryFor(
   return period === "Quarterly" ? yearNode.quarterly : yearNode.annual;
 }
 
+function preferredYear(company: Company): number | null {
+  if (!company.years?.length) return null;
+  const withBoth = company.years.find((y) => y.availablePeriods.length >= 2);
+  return withBoth?.year ?? company.years[0]?.year ?? null;
+}
+
+function latestYearForPeriod(
+  company: Company,
+  target: Period,
+): number | null {
+  const match = company.years?.find((y) => y.availablePeriods.includes(target));
+  return match?.year ?? null;
+}
+
+function companyOffersPeriod(company: Company, target: Period): boolean {
+  if (company.years?.length) {
+    return company.years.some((y) => y.availablePeriods.includes(target));
+  }
+  return (company.availablePeriods ?? []).includes(target);
+}
+
 type DataResponse = {
   results?: Record<string, unknown>;
   error?: string;
@@ -98,9 +119,14 @@ function formatDate(iso: string) {
   }
 }
 
-/** Demo companies (MongoDB) only ship annual report captures — comparison is annual-only. */
-function yearsWithAnnual(company: Company | null | undefined): YearNode[] {
-  return (company?.years ?? []).filter((y) => y.annual != null);
+/** Years that have extracted data for the chosen period (annual or quarterly). */
+function yearsForPeriod(
+  company: Company | null | undefined,
+  target: Period,
+): YearNode[] {
+  return (company?.years ?? []).filter((y) =>
+    y.availablePeriods.includes(target),
+  );
 }
 
 export function ComparisonExplorer() {
@@ -171,13 +197,21 @@ export function ComparisonExplorer() {
   }, [company, selectedYear]);
 
   const comparisonYears = React.useMemo(
-    () => (useMongoTree ? yearsWithAnnual(company) : company?.years ?? []),
-    [company, useMongoTree],
+    () => (useMongoTree ? yearsForPeriod(company, period) : company?.years ?? []),
+    [company, useMongoTree, period],
   );
+
+  const lastCompanyRef = React.useRef<string | null>(null);
 
   React.useEffect(() => {
     if (!company?.years?.length) {
       setSelectedYear(null);
+      return;
+    }
+    if (lastCompanyRef.current !== company.name) {
+      lastCompanyRef.current = company.name;
+      setSelectedYear(preferredYear(company));
+      setPeriod("Annual");
       return;
     }
     const eligible = comparisonYears.map((y) => y.year);
@@ -190,61 +224,84 @@ export function ComparisonExplorer() {
     }
   }, [company, selectedYear, comparisonYears]);
 
-  // Demo companies: annual reports only (captures exist under Annual/<year>/).
   const availablePeriods: Period[] = useMongoTree
-    ? yearNode?.annual != null
-      ? ["Annual"]
-      : []
+    ? (yearNode?.availablePeriods ?? [])
     : (company?.availablePeriods ?? []);
-  const showPeriodToggle = !useMongoTree && availablePeriods.length > 1;
+  const showPeriodToggle = company
+    ? useMongoTree
+      ? Boolean(company.hasAnnual && company.hasQuarterly)
+      : availablePeriods.length > 1
+    : false;
 
-  const effectivePeriod: Period = useMongoTree ? "Annual" : period;
+  const selectPeriod = React.useCallback(
+    (target: Period) => {
+      if (!company) return;
 
-  React.useEffect(() => {
-    if (useMongoTree && period !== "Annual") {
-      setPeriod("Annual");
-    }
-  }, [useMongoTree, period]);
+      if (!useMongoTree) {
+        if ((company.availablePeriods ?? []).includes(target)) {
+          setPeriod(target);
+        }
+        return;
+      }
 
-  const yearSummary = periodSummaryFor(yearNode, effectivePeriod);
+      if (yearNode?.availablePeriods.includes(target)) {
+        setPeriod(target);
+        return;
+      }
+
+      const year = latestYearForPeriod(company, target);
+      if (year != null) {
+        setSelectedYear(year);
+        setPeriod(target);
+      }
+    },
+    [company, useMongoTree, yearNode],
+  );
+
+  const yearSummary = periodSummaryFor(yearNode, period);
   const activeStatements = useMongoTree
     ? yearSummary?.statements ?? []
-    : effectivePeriod === "Quarterly"
+    : period === "Quarterly"
       ? company?.quarterlyStatements ?? []
       : company?.statements ?? [];
   const activeModel = useMongoTree
     ? yearSummary?.model ?? null
-    : effectivePeriod === "Quarterly"
+    : period === "Quarterly"
       ? company?.quarterlyModel ?? company?.model ?? null
       : company?.model ?? null;
   const activeGeneratedAt = useMongoTree
     ? yearSummary?.generatedAt ?? null
-    : effectivePeriod === "Quarterly"
+    : period === "Quarterly"
       ? company?.quarterlyGeneratedAt ?? null
       : company?.generatedAt ?? null;
 
   React.useEffect(() => {
-    if (!company || useMongoTree) return;
-    if (availablePeriods.length > 0 && !availablePeriods.includes(period)) {
-      setPeriod(availablePeriods[0]);
+    if (!company) return;
+    const available = useMongoTree
+      ? (yearNode?.availablePeriods ?? [])
+      : (company.availablePeriods ?? []);
+    if (available.length === 0) return;
+    if (!available.includes(period)) {
+      setPeriod(available[0]);
     }
-  }, [company, period, availablePeriods, useMongoTree]);
+  }, [company, period, useMongoTree, yearNode]);
 
   const pickerCompanies = React.useMemo(
     () =>
       companies.map((c) => {
         const isMongoCompany =
           dataSource === "mongodb" && (c.years?.length ?? 0) > 0;
-        const annualYear = yearsWithAnnual(c)[0];
+        const defaultYear = preferredYear(c) ?? c.years?.[0]?.year;
+        const defaultYearNode = c.years?.find((y) => y.year === defaultYear);
         const statements = isMongoCompany
-          ? (annualYear?.annual?.statements ?? [])
+          ? (defaultYearNode?.annual?.statements ?? [])
           : c.statements;
         return {
           name: c.name,
           displayName: c.displayName,
           statements,
           totalReports: c.totalReports,
-          model: annualYear?.annual?.model ?? c.model,
+          model: defaultYearNode?.annual?.model ?? c.model,
         };
       }),
     [companies, dataSource],
@@ -273,7 +330,7 @@ export function ComparisonExplorer() {
 
     const dataParams = new URLSearchParams({
       company: selectedCompany,
-      period: effectivePeriod,
+      period,
     });
     if (useMongoTree && selectedYear != null) {
       dataParams.set("year", String(selectedYear));
@@ -281,7 +338,7 @@ export function ComparisonExplorer() {
 
     const captureParams = new URLSearchParams({
       company: selectedCompany,
-      period: effectivePeriod,
+      period,
     });
     if (selectedYear != null) {
       captureParams.set("year", String(selectedYear));
@@ -334,7 +391,7 @@ export function ComparisonExplorer() {
     return () => {
       cancelled = true;
     };
-  }, [selectedCompany, effectivePeriod, useMongoTree, selectedYear, refreshToken]);
+  }, [selectedCompany, period, useMongoTree, selectedYear, refreshToken]);
 
   const pillItems = React.useMemo(() => {
     const keys = new Set<string>();
@@ -428,27 +485,34 @@ export function ComparisonExplorer() {
               className="inline-flex items-center gap-0.5 rounded-md border bg-muted/40 p-0.5"
             >
               {(["Annual", "Quarterly"] as const).map((p) => {
-                const enabled = availablePeriods.includes(p);
-                const active = effectivePeriod === p;
+                const reachable = companyOffersPeriod(company, p);
+                const inCurrentYear = availablePeriods.includes(p);
+                const active = period === p;
+                const jumpYear =
+                  useMongoTree && reachable && !inCurrentYear
+                    ? latestYearForPeriod(company, p)
+                    : null;
                 return (
                   <button
                     key={p}
                     type="button"
                     role="tab"
                     aria-selected={active}
-                    disabled={!enabled}
-                    onClick={() => enabled && setPeriod(p)}
+                    disabled={!reachable}
+                    onClick={() => selectPeriod(p)}
                     title={
-                      enabled
-                        ? `Show ${p} comparison`
-                        : `${p} extraction not available for this company`
+                      !reachable
+                        ? `${p} extraction not available for this company`
+                        : jumpYear != null
+                          ? `Show ${p} comparison (${jumpYear})`
+                          : `Show ${p} comparison`
                     }
                     className={cn(
                       "rounded-sm px-2 py-1 text-[11px] font-medium transition-colors",
                       active
                         ? "bg-background text-foreground shadow-sm ring-1 ring-foreground/10"
                         : "text-muted-foreground hover:text-foreground",
-                      !enabled &&
+                      !reachable &&
                         "cursor-not-allowed opacity-40 hover:text-muted-foreground",
                     )}
                   >
