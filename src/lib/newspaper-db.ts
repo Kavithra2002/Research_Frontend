@@ -1,6 +1,23 @@
 export const COMMERCIAL_BANK_SLUG = "Commercial_Bank_of_Ceylon_PLC";
 
-export type DbViewMode = "fs" | "drivers" | "ratios" | "quarterly";
+export type DbViewMode =
+  | "fs"
+  | "drivers"
+  | "ratios"
+  | "quarterly"
+  | "notes"
+  | "test";
+
+export type NoteExtractedTable = {
+  caption?: string | null;
+  header_rows: string[][];
+  rows: {
+    cells: string[];
+    style?: string | Record<string, unknown>;
+  }[];
+  extraction_method?: string;
+  extraction_model?: string;
+};
 
 export type DbGridRow = {
   label: string;
@@ -14,6 +31,18 @@ export type DbGridRow = {
     string,
     { label: string; value: number | null; row?: number }[]
   >;
+  note_source_by_year?: Record<
+    string,
+    {
+      note_ref?: string;
+      source_pdf?: string | null;
+      source_page?: number | null;
+      source_pages?: number[];
+      capture_files?: string[];
+      statement_key?: string;
+    }
+  >;
+  note_tables_by_year?: Record<string, NoteExtractedTable[]>;
   reference_values?: Record<string, number | null>;
 };
 
@@ -82,7 +111,7 @@ export type DbQuarterlyPreview = {
   rows: DbGridRow[];
   cells_filled?: number;
   cells_missing?: number;
-  year?: number;
+  years?: number[];
   template_validation?: {
     matched: number;
     mismatched: number;
@@ -90,11 +119,25 @@ export type DbQuarterlyPreview = {
   };
 };
 
+export type DbNotesPreview = {
+  view: "notes";
+  company_slug: string;
+  company_name?: string;
+  years: number[];
+  unit: string;
+  period_label: string;
+  rows: DbGridRow[];
+  notes_extracted_years?: number[];
+  note_line_items?: number;
+  note_line_items_with_data?: number;
+};
+
 export type DbPreview =
   | DbFsPreview
   | DbDriversPreview
   | DbRatiosPreview
-  | DbQuarterlyPreview;
+  | DbQuarterlyPreview
+  | DbNotesPreview;
 
 export function isQuarterlyDbAvailable(companySlug: string | null): boolean {
   return companySlug === COMMERCIAL_BANK_SLUG;
@@ -181,4 +224,56 @@ export function formatDbRatio(value: number | null | undefined): string {
     maximumFractionDigits: 2,
     minimumFractionDigits: 0,
   });
+}
+
+function isDbDataRow(kind: DbGridRow["kind"]): boolean {
+  return kind === "data" || kind === "check";
+}
+
+/** Filter grid rows by label while keeping section/subsection headers for context. */
+export function filterDbGridRows(
+  rows: DbGridRow[],
+  query: string,
+): DbGridRow[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return rows;
+
+  const labelMatches = (label: string) => label.toLowerCase().includes(q);
+  const visible = new Set<number>();
+
+  for (let i = 0; i < rows.length; i++) {
+    if (isDbDataRow(rows[i].kind) && labelMatches(rows[i].label)) {
+      visible.add(i);
+      for (let j = i - 1; j >= 0; j--) {
+        const kind = rows[j].kind;
+        if (kind === "subsection" || kind === "section") {
+          visible.add(j);
+          if (kind === "section") break;
+        }
+      }
+    }
+  }
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    if (row.kind === "section" && labelMatches(row.label)) {
+      visible.add(i);
+      for (let j = i + 1; j < rows.length && rows[j].kind !== "section"; j++) {
+        visible.add(j);
+      }
+    } else if (row.kind === "subsection" && labelMatches(row.label)) {
+      visible.add(i);
+      for (
+        let j = i + 1;
+        j < rows.length &&
+        rows[j].kind !== "section" &&
+        rows[j].kind !== "subsection";
+        j++
+      ) {
+        visible.add(j);
+      }
+    }
+  }
+
+  return rows.filter((_, i) => visible.has(i));
 }
