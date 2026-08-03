@@ -6,6 +6,28 @@ import {
 import { ChildProcess, spawn } from "node:child_process";
 import path from "node:path";
 
+function killChildTree(child: ChildProcess) {
+  if (!child || child.killed) return;
+  if (process.platform === "win32" && child.pid) {
+    try {
+      spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
+        stdio: "ignore",
+      });
+      return;
+    } catch {
+      /* fall through to signal kill */
+    }
+  }
+  try {
+    child.kill("SIGTERM");
+  } catch {}
+  setTimeout(() => {
+    try {
+      if (!child.killed) child.kill("SIGKILL");
+    } catch {}
+  }, 2000);
+}
+
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
@@ -76,6 +98,7 @@ function finalize(code: number) {
       sub(END_SENTINEL);
     } catch {}
   }
+  state.history = [];
 }
 
 function sanitizeItems(input: unknown): DemoItem[] {
@@ -217,15 +240,14 @@ function attachStream(): ReadableStream<Uint8Array> {
         }
       };
 
-      for (const line of state.history) {
-        try {
-          controller.enqueue(encoder.encode(line + "\n"));
-        } catch {
-          return;
-        }
-      }
-
       if (state.active) {
+        for (const line of state.history) {
+          try {
+            controller.enqueue(encoder.encode(line + "\n"));
+          } catch {
+            return;
+          }
+        }
         state.subscribers.add(send);
       } else {
         try {
@@ -294,9 +316,10 @@ export async function DELETE(request: NextRequest) {
     return proxyToBackend(request, "/api/demo/run");
   }
   if (state.child) {
-    try {
-      state.child.kill();
-    } catch {}
+    broadcast(JSON.stringify({ type: "log", message: "Stop requested — terminating..." }));
+    killChildTree(state.child);
+  } else if (state.active) {
+    finalize(1);
   }
   return new Response(JSON.stringify({ ok: true }), {
     status: 200,

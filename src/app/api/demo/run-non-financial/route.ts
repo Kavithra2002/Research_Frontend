@@ -108,7 +108,7 @@ function startRun(items: NfItem[], opts: StartOptions) {
   state.history = [];
 
   const scriptDir = getScriptDir();
-  const scriptPath = path.join(scriptDir, "non_financial_data_run.py");
+  const scriptPath = path.join(scriptDir, "non_financial_extractor.py");
   const python = pythonCommand();
 
   const args: string[] = ["-u", scriptPath, "--items-stdin"];

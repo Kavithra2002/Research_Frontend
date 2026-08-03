@@ -16,7 +16,6 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 
@@ -249,33 +248,33 @@ export function NonFinancialViewerPanel() {
       <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[minmax(240px,320px)_1fr]">
         {/* ── Company / report tree ───────────────────────────────── */}
         <div className="flex min-h-0 flex-col border-b md:border-r md:border-b-0">
-          {error ? (
-            <div className="flex flex-1 items-center justify-center p-6">
-              <div className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-                <AlertCircle className="mt-0.5 size-4 shrink-0" />
-                <span>{error}</span>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            {error ? (
+              <div className="flex min-h-[200px] items-center justify-center p-6">
+                <div className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+                  <AlertCircle className="mt-0.5 size-4 shrink-0" />
+                  <span>{error}</span>
+                </div>
               </div>
-            </div>
-          ) : loading && companies.length === 0 ? (
-            <div className="flex flex-1 items-center justify-center p-6 text-sm text-muted-foreground">
-              <Loader2 className="mr-2 size-4 animate-spin" />
-              Loading…
-            </div>
-          ) : companies.length === 0 ? (
-            <div className="flex flex-1 items-center justify-center p-6 text-center">
-              <div className="max-w-xs">
-                <Leaf className="mx-auto size-8 text-muted-foreground" />
-                <h3 className="mt-3 font-heading text-sm font-medium">
-                  No non-financial data yet
-                </h3>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Run the non-financial extraction above to capture data into
-                  MongoDB, then refresh to browse it here.
-                </p>
+            ) : loading && companies.length === 0 ? (
+              <div className="flex min-h-[200px] items-center justify-center p-6 text-sm text-muted-foreground">
+                <Loader2 className="mr-2 size-4 animate-spin" />
+                Loading…
               </div>
-            </div>
-          ) : (
-            <ScrollArea className="min-h-0 flex-1">
+            ) : companies.length === 0 ? (
+              <div className="flex min-h-[200px] items-center justify-center p-6 text-center">
+                <div className="max-w-xs">
+                  <Leaf className="mx-auto size-8 text-muted-foreground" />
+                  <h3 className="mt-3 font-heading text-sm font-medium">
+                    No non-financial data yet
+                  </h3>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Run the non-financial extraction above to capture data into
+                    MongoDB, then refresh to browse it here.
+                  </p>
+                </div>
+              </div>
+            ) : (
               <ul className="divide-y">
                 {companies.map((c) => (
                   <CompanyRow
@@ -286,8 +285,8 @@ export function NonFinancialViewerPanel() {
                   />
                 ))}
               </ul>
-            </ScrollArea>
-          )}
+            )}
+          </div>
         </div>
 
         {/* ── Detail ──────────────────────────────────────────────── */}
@@ -511,8 +510,10 @@ function CompanyRow({
   const [open, setOpen] = React.useState(false);
 
   React.useEffect(() => {
-    if (isSelectedCompany) setOpen(true);
-  }, [isSelectedCompany]);
+    if (isSelectedCompany) {
+      setOpen(true);
+    }
+  }, [isSelectedCompany, selection?.report.reportKey]);
 
   return (
     <li className="px-3 py-2">
@@ -594,7 +595,10 @@ function ReportRow({
             {secondary}
           </span>
         ) : null}
-        <Separator orientation="vertical" className="h-3" />
+        <span
+          className="mx-1 hidden h-3 w-px shrink-0 bg-border lg:inline"
+          aria-hidden
+        />
         <span className="shrink-0 truncate text-[11px] text-muted-foreground">
           {report.categoryCount} cat
         </span>

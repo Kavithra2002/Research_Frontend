@@ -47,7 +47,7 @@ export default function SystemPage() {
               <ThemeToggle />
             </div>
           </header>
-          <main className="flex flex-1 min-h-0 min-w-0 flex-col p-4">
+          <main className="flex flex-1 min-h-0 min-w-0 flex-col gap-4 p-4">
             <NewlyUpdatedPanel />
           </main>
         </SidebarInset>

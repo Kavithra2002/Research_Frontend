@@ -62,7 +62,6 @@ type Internal = {
   state: DemoRunStoreState;
   listeners: Set<() => void>;
   abortCtrl: AbortController | null;
-  bootstrapped: boolean;
 };
 
 const g = globalThis as unknown as { __demoRunStore?: Internal };
@@ -71,7 +70,6 @@ if (!g.__demoRunStore) {
     state: initialState,
     listeners: new Set(),
     abortCtrl: null,
-    bootstrapped: false,
   };
 }
 const store = g.__demoRunStore!;
@@ -266,15 +264,8 @@ async function connect(method: "GET" | "POST", body?: Record<string, unknown>) {
   }
 }
 
-function bootstrap() {
-  if (store.bootstrapped) return;
-  store.bootstrapped = true;
-  void connect("GET");
-}
-
 export function subscribe(fn: () => void) {
   store.listeners.add(fn);
-  bootstrap();
   return () => {
     store.listeners.delete(fn);
   };
@@ -290,7 +281,6 @@ export function getServerSnapshot(): DemoRunStoreState {
 
 export async function runDemo(items: DemoRunItem[]) {
   if (store.state.running) return;
-  store.bootstrapped = true;
   setState({
     running: true,
     error: null,

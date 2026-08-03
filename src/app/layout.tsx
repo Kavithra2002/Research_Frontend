@@ -7,6 +7,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/components/auth/auth-provider";
 import { ScanFloatingStatus } from "@/components/system/scan-floating-status";
 import { DemoRunFloatingStatus } from "@/components/test-here/demo-run-floating-status";
+import { LiveExtractFloatingStatus } from "@/components/system/live-extract-floating-status";
 import { NonFinancialFloatingStatus } from "@/components/ai/non-financial-floating-status";
 import { RunningAgentsDock } from "@/components/ai/running-agents-dock";
 import { NotificationFeed } from "@/components/notifications/notification-feed";
@@ -55,6 +56,7 @@ export default function RootLayout({
               {children}
               <ScanFloatingStatus />
               <DemoRunFloatingStatus />
+              <LiveExtractFloatingStatus />
               <NonFinancialFloatingStatus />
               <RunningAgentsDock />
               <NotificationFeed />
