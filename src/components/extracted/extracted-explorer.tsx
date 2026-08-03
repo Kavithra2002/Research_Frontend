@@ -6,10 +6,12 @@ import {
   ChevronsUpDown,
   Database,
   Folder,
+  LayoutGrid,
   Loader2,
   RefreshCw,
   Search,
   Sparkles,
+  TableProperties,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -28,6 +30,9 @@ import {
   ExtractedStatement,
   statementsFromResults,
 } from "./extracted-tables-view";
+import { ExtractedSummaryView } from "./extracted-summary-view";
+
+type ExplorerViewMode = "detail" | "summary";
 
 type ReportFile = {
   name: string;
@@ -43,6 +48,7 @@ type PeriodSummary = {
   tableCount: number;
   model: string | null;
   generatedAt: string | null;
+  availableQuarters?: string[];
 };
 
 type YearNode = {
@@ -128,6 +134,24 @@ function formatDate(iso: string) {
   }
 }
 
+const QUARTER_OPTIONS = ["Q1", "Q2", "Q3", "Q4"] as const;
+
+function normalizeQuarter(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const m = /Q?\s*([1-4])/i.exec(String(raw).trim());
+  return m ? `Q${m[1]}` : null;
+}
+
+function preferredQuarter(available: string[]): string | null {
+  if (!available.length) return null;
+  const sorted = [...available].sort((a, b) => {
+    const ra = Number(/([1-4])/.exec(a)?.[1] ?? 0);
+    const rb = Number(/([1-4])/.exec(b)?.[1] ?? 0);
+    return rb - ra;
+  });
+  return sorted[0] ?? null;
+}
+
 export function ExtractedExplorer() {
   const [dataSource, setDataSource] = React.useState<
     "mongodb" | "filesystem" | null
@@ -140,12 +164,16 @@ export function ExtractedExplorer() {
     null,
   );
   const [selectedYear, setSelectedYear] = React.useState<number | null>(null);
+  const [selectedQuarter, setSelectedQuarter] = React.useState<string | null>(
+    null,
+  );
   const [pickerOpen, setPickerOpen] = React.useState(false);
 
   const [statements, setStatements] = React.useState<ExtractedStatement[]>([]);
   const [dataLoading, setDataLoading] = React.useState(false);
   const [dataError, setDataError] = React.useState<string | null>(null);
   const [period, setPeriod] = React.useState<Period>("Annual");
+  const [viewMode, setViewMode] = React.useState<ExplorerViewMode>("detail");
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -208,6 +236,7 @@ export function ExtractedExplorer() {
       lastCompanyRef.current = company.name;
       setSelectedYear(preferredYear(company));
       setPeriod("Annual");
+      setSelectedQuarter(null);
       return;
     }
     const years = company.years.map((y) => y.year);
@@ -223,12 +252,14 @@ export function ExtractedExplorer() {
       if (!useMongoTree) {
         if ((company.availablePeriods ?? []).includes(target)) {
           setPeriod(target);
+          if (target !== "Quarterly") setSelectedQuarter(null);
         }
         return;
       }
 
       if (yearNode?.availablePeriods.includes(target)) {
         setPeriod(target);
+        if (target !== "Quarterly") setSelectedQuarter(null);
         return;
       }
 
@@ -236,10 +267,29 @@ export function ExtractedExplorer() {
       if (year != null) {
         setSelectedYear(year);
         setPeriod(target);
+        if (target !== "Quarterly") setSelectedQuarter(null);
       }
     },
     [company, useMongoTree, yearNode],
   );
+
+  const availableQuarters = React.useMemo(() => {
+    if (!useMongoTree || period !== "Quarterly") return [];
+    const fromSummary = yearNode?.quarterly?.availableQuarters ?? [];
+    if (fromSummary.length) return fromSummary;
+    return [...QUARTER_OPTIONS];
+  }, [useMongoTree, period, yearNode]);
+
+  React.useEffect(() => {
+    if (period !== "Quarterly") {
+      setSelectedQuarter(null);
+      return;
+    }
+    if (availableQuarters.length === 0) return;
+    const normalized = normalizeQuarter(selectedQuarter);
+    if (normalized && availableQuarters.includes(normalized)) return;
+    setSelectedQuarter(preferredQuarter(availableQuarters));
+  }, [period, availableQuarters, selectedYear, selectedCompany, selectedQuarter]);
 
   React.useEffect(() => {
     if (!company) return;
@@ -253,12 +303,18 @@ export function ExtractedExplorer() {
   }, [company, period, useMongoTree, yearNode]);
 
   React.useEffect(() => {
-    if (!selectedCompany) {
-      setStatements([]);
-      setDataError(null);
+    if (!selectedCompany || viewMode === "summary") {
+      if (viewMode === "summary") {
+        setStatements([]);
+        setDataError(null);
+      }
       return;
     }
     if (useMongoTree && selectedYear == null) {
+      setStatements([]);
+      return;
+    }
+    if (period === "Quarterly" && useMongoTree && !selectedQuarter) {
       setStatements([]);
       return;
     }
@@ -271,6 +327,9 @@ export function ExtractedExplorer() {
     });
     if (useMongoTree && selectedYear != null) {
       params.set("year", String(selectedYear));
+    }
+    if (period === "Quarterly" && selectedQuarter) {
+      params.set("quarter", selectedQuarter);
     }
     const url = `/api/extracted/data?${params.toString()}`;
     fetch(url, { cache: "no-store" })
@@ -297,7 +356,7 @@ export function ExtractedExplorer() {
     return () => {
       cancelled = true;
     };
-  }, [selectedCompany, period, useMongoTree, selectedYear]);
+  }, [selectedCompany, period, useMongoTree, selectedYear, selectedQuarter, viewMode]);
 
   React.useEffect(() => {
     if (!pickerOpen) setQuery("");
@@ -315,7 +374,9 @@ export function ExtractedExplorer() {
     : false;
   const yearSummary = periodSummaryFor(yearNode, period);
   const activeStatements = useMongoTree
-    ? (yearSummary?.statements ?? [])
+    ? statements.length > 0
+      ? statements.map((s) => s.key)
+      : (yearSummary?.statements ?? [])
     : period === "Quarterly"
       ? (company?.quarterlyStatements ?? [])
       : (company?.statements ?? []);
@@ -330,8 +391,51 @@ export function ExtractedExplorer() {
       ? (company?.quarterlyGeneratedAt ?? null)
       : (company?.generatedAt ?? null);
 
+  const summaryStatements = React.useMemo(() => {
+    if (!company?.years?.length) {
+      return company?.statements ?? [];
+    }
+    const keys = new Set<string>();
+    for (const y of company.years) {
+      for (const key of y.annual?.statements ?? []) {
+        keys.add(key);
+      }
+    }
+    return [...keys];
+  }, [company]);
+
   return (
     <div className="flex min-w-0 flex-col gap-2">
+      <div className="flex items-center gap-1 rounded-xl border bg-card px-2 py-1 shadow-sm ring-1 ring-foreground/10">
+        <Button
+          type="button"
+          variant={viewMode === "detail" ? "default" : "ghost"}
+          size="sm"
+          className="h-8 gap-1.5 text-xs"
+          onClick={() => setViewMode("detail")}
+          aria-pressed={viewMode === "detail"}
+        >
+          <TableProperties className="size-3.5" />
+          Detail
+        </Button>
+        <Button
+          type="button"
+          variant={viewMode === "summary" ? "default" : "ghost"}
+          size="sm"
+          className="h-8 gap-1.5 text-xs"
+          onClick={() => setViewMode("summary")}
+          aria-pressed={viewMode === "summary"}
+        >
+          <LayoutGrid className="size-3.5" />
+          Summary
+        </Button>
+        {viewMode === "summary" ? (
+          <span className="ml-2 hidden text-[11px] text-muted-foreground sm:inline">
+            Annual figures 2017–2025 in one table
+          </span>
+        ) : null}
+      </div>
+
       <div className="sticky top-14 z-20 flex flex-wrap items-center justify-between gap-2 rounded-xl border bg-card px-3 py-1.5 shadow-sm ring-1 ring-foreground/10 backdrop-blur supports-[backdrop-filter]:bg-card/95">
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
@@ -484,7 +588,7 @@ export function ExtractedExplorer() {
             <Badge variant="secondary" className="hidden text-[10px] sm:inline-flex">
               {companies.length} total
             </Badge>
-            {company && useMongoTree && (company.years?.length ?? 0) > 0 ? (
+            {company && useMongoTree && (company.years?.length ?? 0) > 0 && viewMode === "detail" ? (
               <div
                 role="tablist"
                 aria-label="Report year"
@@ -512,7 +616,7 @@ export function ExtractedExplorer() {
                 })}
               </div>
             ) : null}
-            {company && showPeriodToggle ? (
+            {company && showPeriodToggle && viewMode === "detail" ? (
               <div
                 role="tablist"
                 aria-label="Report period"
@@ -556,12 +660,52 @@ export function ExtractedExplorer() {
                 })}
               </div>
             ) : null}
-            {activeModel ? (
+            {company &&
+            period === "Quarterly" &&
+            viewMode === "detail" &&
+            availableQuarters.length > 0 ? (
+              <div
+                role="tablist"
+                aria-label="Report quarter"
+                className="inline-flex items-center gap-0.5 rounded-md border bg-muted/40 p-0.5"
+              >
+                {QUARTER_OPTIONS.map((q) => {
+                  const hasData = availableQuarters.includes(q);
+                  const active = selectedQuarter === q;
+                  return (
+                    <button
+                      key={q}
+                      type="button"
+                      role="tab"
+                      aria-selected={active}
+                      disabled={!hasData}
+                      onClick={() => setSelectedQuarter(q)}
+                      title={
+                        hasData
+                          ? `Show ${q} statements`
+                          : `${q} not extracted for ${selectedYear ?? "this year"}`
+                      }
+                      className={cn(
+                        "rounded-sm px-2 py-1 text-[11px] font-medium transition-colors",
+                        active
+                          ? "bg-background text-foreground shadow-sm ring-1 ring-foreground/10"
+                          : "text-muted-foreground hover:text-foreground",
+                        !hasData &&
+                          "cursor-not-allowed opacity-40 hover:text-muted-foreground",
+                      )}
+                    >
+                      {q}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+            {activeModel && viewMode === "detail" ? (
               <Badge variant="secondary" className="hidden text-[10px] md:inline-flex">
                 {activeModel}
               </Badge>
             ) : null}
-            {company ? (
+            {company && viewMode === "detail" ? (
               <span className="hidden truncate text-[11px] text-muted-foreground lg:inline">
                 {activeStatements.length} stmt
                 {activeStatements.length === 1 ? "" : "s"}
@@ -603,6 +747,15 @@ export function ExtractedExplorer() {
               Use the company picker above to browse OpenAI-extracted financial
               statements as tables.
             </p>
+          </CardContent>
+        ) : viewMode === "summary" ? (
+          <CardContent className="px-0 py-0">
+            <ExtractedSummaryView
+              company={selectedCompany}
+              companyDisplayName={company.displayName}
+              availableStatements={summaryStatements}
+              loadingCompanies={loading}
+            />
           </CardContent>
         ) : (
           <CardContent className="px-0 py-0">

@@ -57,6 +57,7 @@ import { RobinConfigPanel } from "@/components/ai/robin-config-panel";
 import { TuckConfigPanel } from "@/components/ai/tuck-config-panel";
 import { MarianConfigPanel } from "@/components/ai/marian-config-panel";
 import { JoneConfigPanel } from "@/components/ai/jone-config-panel";
+import { ExtractionUpdatePanel } from "@/components/ai/extraction-update-panel";
 
 const STORAGE_KEY = "ambeon.ai.extraction.config";
 
@@ -135,6 +136,8 @@ export function AiConfigurationPanel() {
         </CardContent>
       </Card>
 
+      <ExtractionUpdatePanel />
+
       <Card size="sm">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -157,12 +160,16 @@ export function AiConfigurationPanel() {
               value={config.model}
               onChange={(e) => update({ model: e.target.value })}
               className={cn(
-                "flex h-9 w-full max-w-md rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs",
+                "flex h-9 w-full max-w-md rounded-md border border-input bg-background text-foreground px-3 py-1 text-sm shadow-xs",
                 "focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50",
               )}
             >
               {MODEL_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
+                <option
+                  key={opt.value}
+                  value={opt.value}
+                  className="bg-background text-foreground"
+                >
                   {opt.label}
                 </option>
               ))}
@@ -178,12 +185,16 @@ export function AiConfigurationPanel() {
                 update({ option: e.target.value === "2" ? "2" : "1" })
               }
               className={cn(
-                "flex h-9 w-full max-w-md rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs",
+                "flex h-9 w-full max-w-md rounded-md border border-input bg-background text-foreground px-3 py-1 text-sm shadow-xs",
                 "focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50",
               )}
             >
-              <option value="1">Option 1 — Core statements only</option>
-              <option value="2">Option 2 — Core statements + Notes</option>
+              <option value="1" className="bg-background text-foreground">
+                Option 1 — Core statements only
+              </option>
+              <option value="2" className="bg-background text-foreground">
+                Option 2 — Core statements + Notes
+              </option>
             </select>
           </div>
 

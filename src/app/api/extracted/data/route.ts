@@ -21,6 +21,7 @@ async function dataFromMongo(
   company: string,
   year: string,
   period: Period,
+  quarter?: string | null,
 ): Promise<NextResponse | null> {
   try {
     const qs = new URLSearchParams({
@@ -28,6 +29,7 @@ async function dataFromMongo(
       year,
       period,
     });
+    if (quarter) qs.set("quarter", quarter);
     const res = await fetchBackend(`/extracted/data?${qs.toString()}`);
     if (!res.ok) return null;
     const json = await res.json();
@@ -42,6 +44,7 @@ export async function GET(request: NextRequest) {
   const company = searchParams.get("company");
   const period = normalizePeriod(searchParams.get("period"));
   const yearParam = searchParams.get("year");
+  const quarterParam = searchParams.get("quarter");
 
   if (!company) {
     return NextResponse.json(
@@ -58,7 +61,12 @@ export async function GET(request: NextRequest) {
   }
 
   if (yearParam && /^\d{4}$/.test(yearParam)) {
-    const mongoResponse = await dataFromMongo(company, yearParam, period);
+    const mongoResponse = await dataFromMongo(
+      company,
+      yearParam,
+      period,
+      quarterParam,
+    );
     if (mongoResponse) return mongoResponse;
   }
 

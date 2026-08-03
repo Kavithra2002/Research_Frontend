@@ -4,7 +4,26 @@ import {
   shouldProxyPythonToBackend,
 } from "@/lib/backend-proxy";
 import { ChildProcess, spawn } from "node:child_process";
+import fs from "node:fs";
 import path from "node:path";
+
+function getDemoDataRoot(): string {
+  const scriptRoot =
+    process.env.SCRIPT_ROOT?.trim() ||
+    path.resolve(process.cwd(), "..", "backend");
+  const fromEnv = process.env.DEMO_DATA_DIR?.trim();
+  return fromEnv ? path.resolve(fromEnv) : path.join(scriptRoot, "Demo_Data");
+}
+
+function resolveDemoPdfPath(demoRelPath: string): string | null {
+  const rel = demoRelPath.trim().replace(/\\/g, "/");
+  if (!rel || rel.includes("..")) return null;
+  const root = path.resolve(getDemoDataRoot());
+  const abs = path.resolve(root, rel);
+  if (!abs.startsWith(root + path.sep) && abs !== root) return null;
+  if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) return null;
+  return abs;
+}
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -266,9 +285,18 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  let pdf =
+    typeof body.pdf === "string" && body.pdf.trim().length > 0
+      ? body.pdf.trim()
+      : undefined;
+  if (!pdf && typeof body.demoRelPath === "string") {
+    const resolved = resolveDemoPdfPath(body.demoRelPath);
+    if (resolved) pdf = resolved;
+  }
+
   startRun({
     company,
-    pdf: typeof body.pdf === "string" ? body.pdf : undefined,
+    pdf,
     model: typeof body.model === "string" ? body.model : undefined,
     dryRun: body.dryRun === true,
   });

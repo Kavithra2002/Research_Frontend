@@ -400,6 +400,7 @@ export function getServerSnapshot(): NonFinancialStoreState {
 export async function runAnalysis(opts: {
   company: string;
   pdf?: string;
+  demoRelPath?: string;
   model?: string;
 }) {
   if (store.state.running) return;
@@ -417,6 +418,7 @@ export async function runAnalysis(opts: {
   await connect("POST", {
     company: opts.company,
     pdf: opts.pdf,
+    demoRelPath: opts.demoRelPath,
     model: opts.model,
   });
 }

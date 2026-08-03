@@ -24,6 +24,7 @@ export type ExtractedPeriodSummary = {
   tableCount: number;
   model: string | null;
   generatedAt: string | null;
+  availableQuarters?: string[];
 };
 
 export type ExtractedYearNode = {
