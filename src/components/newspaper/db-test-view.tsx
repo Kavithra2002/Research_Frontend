@@ -363,9 +363,8 @@ export function DbTestView({
 }: DbTestViewProps) {
   const [detailLevel, setDetailLevel] = React.useState<DetailLevel>("summary");
   const [period, setPeriod] = React.useState<PeriodType>("annual");
-  const [statement, setStatement] = React.useState<StatementType | null>(
-    "income",
-  );
+  // null = full Annual Notes table; optional statement filters to a section
+  const [statement, setStatement] = React.useState<StatementType | null>(null);
   const [dataCategory, setDataCategory] =
     React.useState<DataCategory>("financial");
   const [fromYear, setFromYear] = React.useState<number | null>(null);
@@ -567,7 +566,6 @@ export function DbTestView({
   const isAnnualNotesView =
     dataCategory === "financial" &&
     period === "annual" &&
-    statement != null &&
     statement !== "soce" &&
     preview?.view === "notes";
 
@@ -605,15 +603,11 @@ export function DbTestView({
     if (statement === "soce") return [];
     const rows = preview?.rows ?? [];
     if (!rows.length) return [];
-    // Annual Notes with a statement selected → that section only.
+    // Annual Notes + statement selected → that section only; otherwise full sheet.
     if (isAnnualNotesView && statement) {
       return filterRowsByStatement(rows, statement);
     }
-    // Quarterly / period views (no statement) → full sheet.
-    if (statement == null || !isAnnualNotesView) {
-      return rows;
-    }
-    return filterRowsByStatement(rows, statement);
+    return rows;
   }, [isAnnualNotesView, preview?.rows, statement]);
 
   const noteBankMeta = React.useMemo(() => {
@@ -681,20 +675,17 @@ export function DbTestView({
   }, []);
 
   const selectStatement = React.useCallback((id: StatementType) => {
-    setStatement(id);
+    // Toggle: click again to deselect and restore the full Annual table.
+    setStatement((current) => (current === id ? null : id));
     // Statement sections are annual — switch Period when needed.
     setPeriod((current) => (current === "annual" ? current : "annual"));
   }, []);
 
   const selectPeriod = React.useCallback((id: PeriodType) => {
     setPeriod(id);
-    // Non-annual periods clear Statement so quarterly data can load.
-    if (id !== "annual") {
-      setStatement(null);
-      return;
-    }
-    // Returning to Annual: default to Income if nothing selected.
-    setStatement((current) => current ?? "income");
+    // Annual shows the full table by default; statement filter is optional.
+    // Non-annual periods also clear Statement so quarterly data can load.
+    setStatement(null);
   }, []);
 
   return (
@@ -950,11 +941,11 @@ export function DbTestView({
                       className={segmentBtn(period === opt.id)}
                       onClick={() => selectPeriod(opt.id)}
                       title={
-                        opt.id !== "annual" && !pilotMode
-                          ? "Quarterly periods use COMB pilot data when available"
-                          : opt.id !== "annual"
-                            ? "Clears Statement selection"
-                            : undefined
+                        opt.id === "annual"
+                          ? "Full Annual Notes table (statement filter optional)"
+                          : !pilotMode
+                            ? "Quarterly periods use COMB pilot data when available"
+                            : "Clears Statement selection"
                       }
                     >
                       {opt.label}
@@ -977,7 +968,9 @@ export function DbTestView({
                       title={
                         opt.id === "soce"
                           ? "SOCE — under development"
-                          : `${opt.label} (switches Period to Annual)`
+                          : statement === opt.id
+                            ? `Clear ${opt.label} filter (show full Annual table)`
+                            : `${opt.label} — filter Annual table (click again to clear)`
                       }
                     >
                       {opt.label}
