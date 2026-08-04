@@ -382,6 +382,10 @@ export function DbTestView({
   const [annualFallbackNote, setAnnualFallbackNote] = React.useState<
     string | null
   >(null);
+  const [cachedBankMeta, setCachedBankMeta] = React.useState({
+    available: false,
+    bankLabel: "Bank",
+  });
 
   const [nfLoading, setNfLoading] = React.useState(false);
   const [nfError, setNfError] = React.useState<string | null>(null);
@@ -393,6 +397,11 @@ export function DbTestView({
 
   const pilotMode = isCombPilotAvailable(company);
   const mountedRef = React.useRef(true);
+  const previewRef = React.useRef(preview);
+  previewRef.current = preview;
+  const financialCacheKeyRef = React.useRef<string | null>(null);
+  const nfDataCacheKeyRef = React.useRef<string | null>(null);
+  const nfReportsCacheKeyRef = React.useRef<string | null>(null);
 
   React.useEffect(() => {
     mountedRef.current = true;
@@ -403,23 +412,21 @@ export function DbTestView({
 
   const loadFinancial = React.useCallback(async () => {
     if (!company) return;
+    const cacheKey = `${company}::${period}::${refreshToken}`;
+    // Reuse cached financial preview when toggling Data category back.
+    if (previewRef.current && financialCacheKeyRef.current === cacheKey) {
+      return;
+    }
     if (mountedRef.current) {
       setLoading(true);
       setError(null);
       setAnnualFallbackNote(null);
-      setPreview(null);
+      // Keep previous preview so filters stay mounted; table shows overlay.
     }
 
     try {
-      // SOCE is not wired yet — placeholder only.
-      if (statement === "soce") {
-        if (mountedRef.current) {
-          setPreview(null);
-        }
-        return;
-      }
-
       // Annual (+ optional statement section) → Notes workbook.
+      // Statement filtering is client-side — do not refetch when it changes.
       if (period === "annual") {
         if (!pilotMode) {
           throw new Error(
@@ -434,6 +441,7 @@ export function DbTestView({
         }
         if (!mountedRef.current) return;
         setPreview(json);
+        financialCacheKeyRef.current = cacheKey;
         return;
       }
 
@@ -451,14 +459,16 @@ export function DbTestView({
       }
       if (!mountedRef.current) return;
       setPreview(json);
+      financialCacheKeyRef.current = cacheKey;
     } catch (err) {
       if (!mountedRef.current) return;
       setError(err instanceof Error ? err.message : String(err));
       setPreview(null);
+      financialCacheKeyRef.current = null;
     } finally {
       if (mountedRef.current) setLoading(false);
     }
-  }, [company, period, pilotMode, statement, refreshToken]);
+  }, [company, period, pilotMode, refreshToken]);
 
   React.useEffect(() => {
     if (period !== "annual" && detailLevel !== "summary") {
@@ -472,12 +482,31 @@ export function DbTestView({
   }, [dataCategory, loadFinancial]);
 
   React.useEffect(() => {
-    if (dataCategory !== "non_financial" || !company) {
+    if (!company) {
       setNfReports([]);
       setNfReportKey(null);
       setNfData(null);
+      nfDataCacheKeyRef.current = null;
+      nfReportsCacheKeyRef.current = null;
       return;
     }
+
+    const reportsKey = `${company}::${refreshToken}`;
+    if (
+      nfReportsCacheKeyRef.current &&
+      nfReportsCacheKeyRef.current !== reportsKey
+    ) {
+      // Company/refresh changed — drop stale NF payload.
+      setNfData(null);
+      nfDataCacheKeyRef.current = null;
+      setNfReports([]);
+      nfReportsCacheKeyRef.current = null;
+    }
+
+    // Keep NF cache when switching to Financial so toggles stay instant.
+    if (dataCategory !== "non_financial") return;
+    if (nfReportsCacheKeyRef.current === reportsKey) return;
+
     let cancelled = false;
     setNfLoading(true);
     setNfError(null);
@@ -501,6 +530,7 @@ export function DbTestView({
           );
         const reports = match?.reports ?? [];
         setNfReports(reports);
+        nfReportsCacheKeyRef.current = reportsKey;
         setNfReportKey((prev) => {
           if (prev && reports.some((r) => r.reportKey === prev)) return prev;
           return reports[0]?.reportKey ?? null;
@@ -511,6 +541,7 @@ export function DbTestView({
         setNfError(err instanceof Error ? err.message : String(err));
         setNfReports([]);
         setNfReportKey(null);
+        nfReportsCacheKeyRef.current = null;
       })
       .finally(() => {
         if (!cancelled) setNfLoading(false);
@@ -521,10 +552,17 @@ export function DbTestView({
   }, [company, companyDisplayName, dataCategory, refreshToken]);
 
   React.useEffect(() => {
-    if (dataCategory !== "non_financial" || !company || !nfReportKey) {
+    if (!company) {
       setNfData(null);
+      nfDataCacheKeyRef.current = null;
       return;
     }
+    // Keep NF content cached while viewing Financial Data.
+    if (dataCategory !== "non_financial" || !nfReportKey) return;
+
+    const cacheKey = `${company}::${nfReportKey}::${refreshToken}`;
+    if (nfDataCacheKeyRef.current === cacheKey) return;
+
     let cancelled = false;
     setNfDataLoading(true);
     const qs = new URLSearchParams({ company, reportKey: nfReportKey });
@@ -535,12 +573,15 @@ export function DbTestView({
         return json;
       })
       .then((json) => {
-        if (!cancelled) setNfData(json);
+        if (cancelled) return;
+        setNfData(json);
+        nfDataCacheKeyRef.current = cacheKey;
       })
       .catch((err) => {
         if (cancelled) return;
         setNfError(err instanceof Error ? err.message : String(err));
         setNfData(null);
+        nfDataCacheKeyRef.current = null;
       })
       .finally(() => {
         if (!cancelled) setNfDataLoading(false);
@@ -548,7 +589,7 @@ export function DbTestView({
     return () => {
       cancelled = true;
     };
-  }, [company, dataCategory, nfReportKey]);
+  }, [company, dataCategory, nfReportKey, refreshToken]);
 
   const rawColumnLabels =
     preview?.view === "quarterly"
@@ -563,11 +604,13 @@ export function DbTestView({
         ? preview.years.map(String)
         : [];
 
+  // Keep Entity / Statement controls stable even while preview is loading /
+  // while Non Financial Data is selected (panel stays mounted for height anim).
+  const isAnnualNotesContext =
+    period === "annual" && statement !== "soce";
+
   const isAnnualNotesView =
-    dataCategory === "financial" &&
-    period === "annual" &&
-    statement !== "soce" &&
-    preview?.view === "notes";
+    isAnnualNotesContext && preview?.view === "notes";
 
   const filteredColumns = React.useMemo(
     () =>
@@ -610,16 +653,33 @@ export function DbTestView({
     return rows;
   }, [isAnnualNotesView, preview?.rows, statement]);
 
+  // Derive Entity availability from the full Notes sheet, not the filtered
+  // statement section — otherwise Group/Bank vanishes when switching statements.
   const noteBankMeta = React.useMemo(() => {
-    if (!isAnnualNotesView) {
-      return { available: false, bankLabel: "Bank" };
+    if (preview?.view !== "notes") {
+      return { available: false, bankLabel: "Bank" as string };
     }
-    for (const row of tableRows) {
+    const rows = preview.rows ?? [];
+    for (const row of rows) {
       const meta = noteTablesHaveBankEntity(row.note_tables_by_year);
       if (meta.available) return meta;
     }
-    return { available: false, bankLabel: "Bank" };
-  }, [isAnnualNotesView, tableRows]);
+    return { available: false, bankLabel: "Bank" as string };
+  }, [preview]);
+
+  React.useEffect(() => {
+    if (noteBankMeta.available) {
+      setCachedBankMeta(noteBankMeta);
+    }
+  }, [noteBankMeta]);
+
+  const entityToggleMeta =
+    noteBankMeta.available || !isAnnualNotesContext
+      ? noteBankMeta
+      : cachedBankMeta;
+
+  const showEntityToggle =
+    isAnnualNotesContext && entityToggleMeta.available;
 
   const periodLabel = preview?.period_label ?? "";
   const unit = preview?.unit ?? "";
@@ -768,274 +828,321 @@ export function DbTestView({
             </div>
           </div>
 
-          {dataCategory === "financial" ? (
-            <>
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  Dates
-                </span>
-                <div className="flex items-center gap-1">
-                  <Popover open={yearRangeOpen} onOpenChange={setYearRangeOpen}>
-                    <PopoverTrigger
-                      className={cn(
-                        "inline-flex h-8 items-center gap-1.5 rounded-md border bg-background px-2.5 text-xs font-medium shadow-sm transition-colors",
-                        "hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-                        dateFilterActive
-                          ? "border-lime-500/40 text-foreground"
-                          : "text-muted-foreground",
-                      )}
-                      aria-label="Filter by year range"
-                      title="Filter columns by year range"
-                    >
-                      <CalendarIcon className="size-3.5 shrink-0" />
-                      <span className="max-w-[14rem] truncate">
-                        {formatYearRangeLabel(
-                          fromYear,
-                          toYear,
-                          fromMonth,
-                          toMonth,
-                        )}
+          <div>
+            {/* Financial filters — animate height open/closed */}
+            <div
+              className={cn(
+                "grid transition-[grid-template-rows] duration-300 ease-in-out",
+                dataCategory === "financial"
+                  ? "grid-rows-[1fr]"
+                  : "grid-rows-[0fr]",
+              )}
+              aria-hidden={dataCategory !== "financial"}
+            >
+              <div className="min-h-0 overflow-hidden">
+                <div
+                  className={cn(
+                    "flex flex-col gap-3 pt-3 transition-opacity duration-300 ease-in-out",
+                    dataCategory === "financial"
+                      ? "opacity-100"
+                      : "pointer-events-none opacity-0",
+                  )}
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      Dates
+                    </span>
+                    <div className="flex items-center gap-1">
+                      <Popover open={yearRangeOpen} onOpenChange={setYearRangeOpen}>
+                        <PopoverTrigger
+                          className={cn(
+                            "inline-flex h-8 items-center gap-1.5 rounded-md border bg-background px-2.5 text-xs font-medium shadow-sm transition-colors",
+                            "hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+                            dateFilterActive
+                              ? "border-lime-500/40 text-foreground"
+                              : "text-muted-foreground",
+                          )}
+                          aria-label="Filter by year range"
+                          title="Filter columns by year range"
+                          tabIndex={dataCategory === "financial" ? 0 : -1}
+                        >
+                          <CalendarIcon className="size-3.5 shrink-0" />
+                          <span className="max-w-[14rem] truncate">
+                            {formatYearRangeLabel(
+                              fromYear,
+                              toYear,
+                              fromMonth,
+                              toMonth,
+                            )}
+                          </span>
+                        </PopoverTrigger>
+                        <PopoverContent align="start" className="w-80 p-3">
+                          <div className="flex flex-col gap-3">
+                            <div className="grid grid-cols-2 gap-3">
+                              <div className="flex flex-col gap-2">
+                                <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                                  From
+                                </span>
+                                <label className="flex flex-col gap-1">
+                                  <span className="text-[10px] text-muted-foreground">
+                                    Year
+                                  </span>
+                                  <select
+                                    value={fromYear ?? ""}
+                                    onChange={(e) => {
+                                      const value = e.target.value;
+                                      updateFromYear(value ? Number(value) : null);
+                                    }}
+                                    className="h-8 rounded-md border border-input bg-background px-2 text-xs font-medium shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                    aria-label="From year"
+                                  >
+                                    <option value="">Any</option>
+                                    {availableYears.map((year) => (
+                                      <option key={`from-${year}`} value={year}>
+                                        {year}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </label>
+                                <label className="flex flex-col gap-1">
+                                  <span className="text-[10px] text-muted-foreground">
+                                    Month
+                                  </span>
+                                  <select
+                                    value={fromMonth ?? ""}
+                                    disabled={fromYear == null}
+                                    onChange={(e) => {
+                                      const value = e.target.value;
+                                      setFromMonth(value ? Number(value) : null);
+                                    }}
+                                    className="h-8 rounded-md border border-input bg-background px-2 text-xs font-medium shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                                    aria-label="From month"
+                                  >
+                                    <option value="">Any</option>
+                                    {MONTH_OPTIONS.map((m) => (
+                                      <option key={`from-m-${m.value}`} value={m.value}>
+                                        {m.label}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </label>
+                              </div>
+                              <div className="flex flex-col gap-2">
+                                <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                                  To
+                                </span>
+                                <label className="flex flex-col gap-1">
+                                  <span className="text-[10px] text-muted-foreground">
+                                    Year
+                                  </span>
+                                  <select
+                                    value={toYear ?? ""}
+                                    onChange={(e) => {
+                                      const value = e.target.value;
+                                      updateToYear(value ? Number(value) : null);
+                                    }}
+                                    className="h-8 rounded-md border border-input bg-background px-2 text-xs font-medium shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                    aria-label="To year"
+                                  >
+                                    <option value="">Any</option>
+                                    {availableYears.map((year) => (
+                                      <option key={`to-${year}`} value={year}>
+                                        {year}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </label>
+                                <label className="flex flex-col gap-1">
+                                  <span className="text-[10px] text-muted-foreground">
+                                    Month
+                                  </span>
+                                  <select
+                                    value={toMonth ?? ""}
+                                    disabled={toYear == null}
+                                    onChange={(e) => {
+                                      const value = e.target.value;
+                                      setToMonth(value ? Number(value) : null);
+                                    }}
+                                    className="h-8 rounded-md border border-input bg-background px-2 text-xs font-medium shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                                    aria-label="To month"
+                                  >
+                                    <option value="">Any</option>
+                                    {MONTH_OPTIONS.map((m) => (
+                                      <option key={`to-m-${m.value}`} value={m.value}>
+                                        {m.label}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </label>
+                              </div>
+                            </div>
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="text-[10px] text-muted-foreground">
+                                Pick year first, then month
+                              </p>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 px-2 text-xs"
+                                disabled={!dateFilterActive}
+                                onClick={clearYearRange}
+                              >
+                                Clear
+                              </Button>
+                            </div>
+                          </div>
+                        </PopoverContent>
+                      </Popover>
+                      {dateFilterActive ? (
+                        <button
+                          type="button"
+                          onClick={clearYearRange}
+                          className="inline-flex size-8 items-center justify-center rounded-md border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                          aria-label="Clear year range filter"
+                          title="Show all years"
+                          tabIndex={dataCategory === "financial" ? 0 : -1}
+                        >
+                          <X className="size-3.5" />
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      Period
+                    </span>
+                    <div className="inline-flex flex-wrap rounded-lg border bg-muted/40 p-0.5">
+                      {PERIOD_OPTIONS.map((opt) => (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          className={segmentBtn(period === opt.id)}
+                          onClick={() => selectPeriod(opt.id)}
+                          tabIndex={dataCategory === "financial" ? 0 : -1}
+                          title={
+                            opt.id === "annual"
+                              ? "Full Annual Notes table (statement filter optional)"
+                              : !pilotMode
+                                ? "Quarterly periods use COMB pilot data when available"
+                                : "Clears Statement selection"
+                          }
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      Statement
+                    </span>
+                    <div className="inline-flex flex-wrap rounded-lg border bg-muted/40 p-0.5">
+                      {STATEMENT_OPTIONS.map((opt) => (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          className={segmentBtn(statement === opt.id)}
+                          onClick={() => selectStatement(opt.id)}
+                          tabIndex={dataCategory === "financial" ? 0 : -1}
+                          title={
+                            opt.id === "soce"
+                              ? "SOCE — under development"
+                              : statement === opt.id
+                                ? `Clear ${opt.label} filter (show full Annual table)`
+                                : `${opt.label} — filter Annual table (click again to clear)`
+                          }
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {showEntityToggle ? (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        Entity
                       </span>
-                    </PopoverTrigger>
-                    <PopoverContent align="start" className="w-80 p-3">
-                      <div className="flex flex-col gap-3">
-                        <div className="grid grid-cols-2 gap-3">
-                          <div className="flex flex-col gap-2">
-                            <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                              From
-                            </span>
-                            <label className="flex flex-col gap-1">
-                              <span className="text-[10px] text-muted-foreground">
-                                Year
-                              </span>
-                              <select
-                                value={fromYear ?? ""}
-                                onChange={(e) => {
-                                  const value = e.target.value;
-                                  updateFromYear(value ? Number(value) : null);
-                                }}
-                                className="h-8 rounded-md border border-input bg-background px-2 text-xs font-medium shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                                aria-label="From year"
-                              >
-                                <option value="">Any</option>
-                                {availableYears.map((year) => (
-                                  <option key={`from-${year}`} value={year}>
-                                    {year}
-                                  </option>
-                                ))}
-                              </select>
-                            </label>
-                            <label className="flex flex-col gap-1">
-                              <span className="text-[10px] text-muted-foreground">
-                                Month
-                              </span>
-                              <select
-                                value={fromMonth ?? ""}
-                                disabled={fromYear == null}
-                                onChange={(e) => {
-                                  const value = e.target.value;
-                                  setFromMonth(value ? Number(value) : null);
-                                }}
-                                className="h-8 rounded-md border border-input bg-background px-2 text-xs font-medium shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                                aria-label="From month"
-                              >
-                                <option value="">Any</option>
-                                {MONTH_OPTIONS.map((m) => (
-                                  <option key={`from-m-${m.value}`} value={m.value}>
-                                    {m.label}
-                                  </option>
-                                ))}
-                              </select>
-                            </label>
-                          </div>
-                          <div className="flex flex-col gap-2">
-                            <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                              To
-                            </span>
-                            <label className="flex flex-col gap-1">
-                              <span className="text-[10px] text-muted-foreground">
-                                Year
-                              </span>
-                              <select
-                                value={toYear ?? ""}
-                                onChange={(e) => {
-                                  const value = e.target.value;
-                                  updateToYear(value ? Number(value) : null);
-                                }}
-                                className="h-8 rounded-md border border-input bg-background px-2 text-xs font-medium shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                                aria-label="To year"
-                              >
-                                <option value="">Any</option>
-                                {availableYears.map((year) => (
-                                  <option key={`to-${year}`} value={year}>
-                                    {year}
-                                  </option>
-                                ))}
-                              </select>
-                            </label>
-                            <label className="flex flex-col gap-1">
-                              <span className="text-[10px] text-muted-foreground">
-                                Month
-                              </span>
-                              <select
-                                value={toMonth ?? ""}
-                                disabled={toYear == null}
-                                onChange={(e) => {
-                                  const value = e.target.value;
-                                  setToMonth(value ? Number(value) : null);
-                                }}
-                                className="h-8 rounded-md border border-input bg-background px-2 text-xs font-medium shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                                aria-label="To month"
-                              >
-                                <option value="">Any</option>
-                                {MONTH_OPTIONS.map((m) => (
-                                  <option key={`to-m-${m.value}`} value={m.value}>
-                                    {m.label}
-                                  </option>
-                                ))}
-                              </select>
-                            </label>
-                          </div>
-                        </div>
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="text-[10px] text-muted-foreground">
-                            Pick year first, then month
-                          </p>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 px-2 text-xs"
-                            disabled={!dateFilterActive}
-                            onClick={clearYearRange}
-                          >
-                            Clear
-                          </Button>
-                        </div>
+                      <div className="inline-flex rounded-lg border bg-muted/40 p-0.5">
+                        <button
+                          type="button"
+                          className={segmentBtn(noteEntity === "group")}
+                          onClick={() => setNoteEntity("group")}
+                          tabIndex={dataCategory === "financial" ? 0 : -1}
+                        >
+                          Group
+                        </button>
+                        <button
+                          type="button"
+                          className={segmentBtn(noteEntity === "bank")}
+                          onClick={() => setNoteEntity("bank")}
+                          tabIndex={dataCategory === "financial" ? 0 : -1}
+                        >
+                          {entityToggleMeta.bankLabel}
+                        </button>
                       </div>
-                    </PopoverContent>
-                  </Popover>
-                  {dateFilterActive ? (
-                    <button
-                      type="button"
-                      onClick={clearYearRange}
-                      className="inline-flex size-8 items-center justify-center rounded-md border text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                      aria-label="Clear year range filter"
-                      title="Show all years"
-                    >
-                      <X className="size-3.5" />
-                    </button>
+                    </div>
                   ) : null}
                 </div>
               </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  Period
-                </span>
-                <div className="inline-flex flex-wrap rounded-lg border bg-muted/40 p-0.5">
-                  {PERIOD_OPTIONS.map((opt) => (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      className={segmentBtn(period === opt.id)}
-                      onClick={() => selectPeriod(opt.id)}
-                      title={
-                        opt.id === "annual"
-                          ? "Full Annual Notes table (statement filter optional)"
-                          : !pilotMode
-                            ? "Quarterly periods use COMB pilot data when available"
-                            : "Clears Statement selection"
-                      }
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  Statement
-                </span>
-                <div className="inline-flex flex-wrap rounded-lg border bg-muted/40 p-0.5">
-                  {STATEMENT_OPTIONS.map((opt) => (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      className={segmentBtn(statement === opt.id)}
-                      onClick={() => selectStatement(opt.id)}
-                      title={
-                        opt.id === "soce"
-                          ? "SOCE — under development"
-                          : statement === opt.id
-                            ? `Clear ${opt.label} filter (show full Annual table)`
-                            : `${opt.label} — filter Annual table (click again to clear)`
-                      }
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {isAnnualNotesView && noteBankMeta.available ? (
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    Entity
-                  </span>
-                  <div className="inline-flex rounded-lg border bg-muted/40 p-0.5">
-                    <button
-                      type="button"
-                      className={segmentBtn(noteEntity === "group")}
-                      onClick={() => setNoteEntity("group")}
-                    >
-                      Group
-                    </button>
-                    <button
-                      type="button"
-                      className={segmentBtn(noteEntity === "bank")}
-                      onClick={() => setNoteEntity("bank")}
-                    >
-                      {noteBankMeta.bankLabel}
-                    </button>
-                  </div>
-                </div>
-              ) : null}
-            </>
-          ) : (
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                Report
-              </span>
-              {nfLoading ? (
-                <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <Loader2 className="size-3.5 animate-spin" />
-                  Loading reports…
-                </span>
-              ) : nfReports.length === 0 ? (
-                <span className="text-xs text-muted-foreground">
-                  No saved non-financial reports for this company.
-                </span>
-              ) : (
-                <select
-                  value={nfReportKey ?? ""}
-                  onChange={(e) => setNfReportKey(e.target.value || null)}
-                  className="h-8 rounded-md border border-input bg-background px-2 text-xs font-medium shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                  aria-label="Non-financial report"
-                >
-                  {nfReports.map((r) => (
-                    <option key={r.reportKey} value={r.reportKey}>
-                      {r.reportingYear || r.year || r.reportKey}
-                      {r.foundCount != null
-                        ? ` · ${r.foundCount}/${r.totalCount}`
-                        : ""}
-                    </option>
-                  ))}
-                </select>
-              )}
             </div>
-          )}
+
+            {/* Non-financial filters — animate height open/closed */}
+            <div
+              className={cn(
+                "grid transition-[grid-template-rows] duration-300 ease-in-out",
+                dataCategory === "non_financial"
+                  ? "grid-rows-[1fr]"
+                  : "grid-rows-[0fr]",
+              )}
+              aria-hidden={dataCategory !== "non_financial"}
+            >
+              <div className="min-h-0 overflow-hidden">
+                <div
+                  className={cn(
+                    "flex flex-wrap items-center gap-2 pt-3 transition-opacity duration-300 ease-in-out",
+                    dataCategory === "non_financial"
+                      ? "opacity-100"
+                      : "pointer-events-none opacity-0",
+                  )}
+                >
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    Report
+                  </span>
+                  {nfLoading && nfReports.length === 0 ? (
+                    <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <Loader2 className="size-3.5 animate-spin" />
+                      Loading reports…
+                    </span>
+                  ) : nfReports.length === 0 ? (
+                    <span className="text-xs text-muted-foreground">
+                      No saved non-financial reports for this company.
+                    </span>
+                  ) : (
+                    <select
+                      value={nfReportKey ?? ""}
+                      onChange={(e) => setNfReportKey(e.target.value || null)}
+                      className="h-8 rounded-md border border-input bg-background px-2 text-xs font-medium shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      aria-label="Non-financial report"
+                      tabIndex={dataCategory === "non_financial" ? 0 : -1}
+                    >
+                      {nfReports.map((r) => (
+                        <option key={r.reportKey} value={r.reportKey}>
+                          {r.reportingYear || r.year || r.reportKey}
+                          {r.foundCount != null
+                            ? ` · ${r.foundCount}/${r.totalCount}`
+                            : ""}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1048,184 +1155,245 @@ export function DbTestView({
         </Alert>
       ) : null}
 
-      {dataCategory === "financial" ? (
-        error ? (
-          <Alert variant="destructive">
-            <AlertTitle>Could not load data</AlertTitle>
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        ) : statement === "soce" ? (
-          <div className="flex min-h-[320px] flex-col items-center justify-center gap-2 rounded-xl border border-dashed bg-muted/20 p-8 text-center">
-            <p className="text-sm font-medium">SOCE — under development</p>
-            <p className="max-w-sm text-xs text-muted-foreground">
-              Statement of Changes in Equity will be added later. Use Income
-              statement, Balance Sheet, or CFS for now.
-            </p>
-          </div>
-        ) : loading ? (
-          <div className="flex min-h-[320px] items-center justify-center rounded-xl border bg-card">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="size-4 animate-spin" />
-              Loading {statementTitle}…
-            </div>
-          </div>
-        ) : isAnnualNotesView && tableRows.length > 0 && notesYears.length > 0 ? (
-          <NotesSheetTableView
-            periodLabel={periodLabel}
-            unit={unit}
-            years={notesYears}
-            rows={tableRows}
-            notesExtractedYears={notesPreview?.notes_extracted_years}
-            amountDisplay={amountDisplay}
-            onAmountDisplayChange={setAmountDisplay}
-            companySlug={company ?? undefined}
-            detailLevel={detailLevel}
-            noteEntity={noteEntity}
-          />
-        ) : tableRows.length > 0 && filteredColumns.keys.length > 0 ? (
-          <FsSheetTableView
-            pageScroll
-            title={statementTitle}
-            periodLabel={periodLabel}
-            unit={unit}
-            columnLabels={filteredColumns.labels}
-            columnKeys={filteredColumns.keys}
-            rows={tableRows}
-            valueFormat="amount"
-            enableNotes={false}
-            companySlug={company ?? undefined}
-            amountDisplay={amountDisplay}
-            onAmountDisplayChange={setAmountDisplay}
-            showAmountDisplaySelect
-          />
-        ) : (
-          <div className="flex min-h-[320px] items-center justify-center rounded-xl border border-dashed bg-muted/20 p-6 text-center text-sm text-muted-foreground">
-            {company
-              ? "No rows match the current filters. Try another period, statement, or date range."
-              : "Select a company to load data."}
-          </div>
-        )
-      ) : nfError && !nfData ? (
-        <Alert variant="destructive">
-          <AlertTitle>Non-financial data unavailable</AlertTitle>
-          <AlertDescription>{nfError}</AlertDescription>
-        </Alert>
-      ) : nfDataLoading || nfLoading ? (
-        <div className="flex min-h-[320px] items-center justify-center rounded-xl border bg-card">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="size-4 animate-spin" />
-            Loading non-financial data…
-          </div>
-        </div>
-      ) : nfData ? (
-        <div className="rounded-xl border bg-card p-4">
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <div>
-              <p className="text-sm font-semibold">Non-financial data</p>
-              <p className="text-xs text-muted-foreground">
-                {companyDisplayName || company}
+      <div className="relative min-w-0">
+        {/* Financial content panel */}
+        <div
+          className={cn(
+            "transition-opacity duration-300 ease-in-out",
+            dataCategory === "financial"
+              ? "relative z-[1] opacity-100"
+              : "pointer-events-none absolute inset-x-0 top-0 z-0 opacity-0",
+          )}
+          aria-hidden={dataCategory !== "financial"}
+        >
+          {error ? (
+            <Alert variant="destructive">
+              <AlertTitle>Could not load data</AlertTitle>
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          ) : statement === "soce" ? (
+            <div className="flex min-h-[320px] flex-col items-center justify-center gap-2 rounded-xl border border-dashed bg-muted/20 p-8 text-center">
+              <p className="text-sm font-medium">SOCE — under development</p>
+              <p className="max-w-sm text-xs text-muted-foreground">
+                Statement of Changes in Equity will be added later. Use Income
+                statement, Balance Sheet, or CFS for now.
               </p>
             </div>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-7 text-[11px]"
-              onClick={() => setShowMissingNf((s) => !s)}
-            >
-              {showMissingNf ? "Hide" : "Show"} not-found
-            </Button>
-          </div>
-
-          {nfData.companyOverview ? (
-            <div className="mb-4 rounded-lg border bg-muted/20 px-3 py-2.5">
-              <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                Company overview
-              </span>
-              <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-muted-foreground">
-                {nfData.companyOverview}
-              </p>
-            </div>
-          ) : null}
-
-          {(nfData.categories ?? []).length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No categories stored for this report.
-            </p>
           ) : (
-            <div className="flex flex-col gap-4">
-              {(nfData.categories ?? []).map((cat) => {
-                const metrics = Array.isArray(cat.metrics) ? cat.metrics : [];
-                const found = metrics.filter((m) => m.found);
-                const visible = showMissingNf ? metrics : found;
-                if (visible.length === 0) return null;
-                return (
-                  <div key={cat.key} className="flex flex-col gap-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-semibold">{cat.title}</span>
-                      <Badge variant="secondary" className="text-[10px]">
-                        {found.length}/{metrics.length}
-                      </Badge>
-                    </div>
-                    <ul className="grid grid-cols-1 gap-2 lg:grid-cols-2">
-                      {visible.map((m) => (
-                        <li
-                          key={m.key}
-                          className={cn(
-                            "rounded-lg border px-3 py-2 text-xs shadow-sm",
-                            m.found
-                              ? "bg-card/60"
-                              : "border-dashed bg-muted/20 opacity-70",
-                          )}
-                        >
-                          <div className="flex items-center gap-2">
-                            {m.found ? (
-                              <CheckCircle2 className="size-3.5 shrink-0 text-emerald-500" />
-                            ) : (
-                              <MinusCircle className="size-3.5 shrink-0 text-muted-foreground" />
-                            )}
-                            <span className="font-medium">{m.title}</span>
-                            {m.found && m.pages?.length > 0 ? (
-                              <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">
-                                p.{m.pages.join(", ")}
-                              </span>
-                            ) : null}
-                          </div>
-                          {m.found ? (
-                            <>
-                              <div className="mt-1 text-muted-foreground">
-                                {m.value}
-                              </div>
-                              {m.detail ? (
-                                <div className="mt-0.5 text-[11px] text-muted-foreground/80">
-                                  {m.detail}
-                                </div>
-                              ) : null}
-                            </>
-                          ) : (
-                            <div className="mt-1 text-[11px] text-muted-foreground/70">
-                              Not reported
-                            </div>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
+            <div className="relative min-w-0">
+              {isAnnualNotesView && tableRows.length > 0 && notesYears.length > 0 ? (
+                <NotesSheetTableView
+                  periodLabel={periodLabel}
+                  unit={unit}
+                  years={notesYears}
+                  rows={tableRows}
+                  notesExtractedYears={notesPreview?.notes_extracted_years}
+                  amountDisplay={amountDisplay}
+                  onAmountDisplayChange={setAmountDisplay}
+                  companySlug={company ?? undefined}
+                  detailLevel={detailLevel}
+                  noteEntity={noteEntity}
+                />
+              ) : tableRows.length > 0 && filteredColumns.keys.length > 0 ? (
+                <FsSheetTableView
+                  pageScroll
+                  title={statementTitle}
+                  periodLabel={periodLabel}
+                  unit={unit}
+                  columnLabels={filteredColumns.labels}
+                  columnKeys={filteredColumns.keys}
+                  rows={tableRows}
+                  valueFormat="amount"
+                  enableNotes={false}
+                  companySlug={company ?? undefined}
+                  amountDisplay={amountDisplay}
+                  onAmountDisplayChange={setAmountDisplay}
+                  showAmountDisplaySelect
+                />
+              ) : !loading ? (
+                <div className="flex min-h-[320px] items-center justify-center rounded-xl border border-dashed bg-muted/20 p-6 text-center text-sm text-muted-foreground">
+                  {company
+                    ? "No rows match the current filters. Try another period, statement, or date range."
+                    : "Select a company to load data."}
+                </div>
+              ) : (
+                <div className="min-h-[320px] rounded-xl border bg-card" />
+              )}
+
+              {loading ? (
+                <div
+                  className={cn(
+                    "absolute inset-0 z-10 flex min-h-[320px] items-center justify-center rounded-xl",
+                    tableRows.length > 0
+                      ? "bg-background/70 backdrop-blur-[1px]"
+                      : "bg-card",
+                  )}
+                  aria-busy="true"
+                  aria-live="polite"
+                >
+                  <div className="flex items-center gap-2 rounded-lg border bg-card/95 px-3 py-2 text-sm text-muted-foreground shadow-sm">
+                    <Loader2 className="size-4 animate-spin" />
+                    Loading {statementTitle}…
                   </div>
-                );
-              })}
+                </div>
+              ) : null}
             </div>
           )}
         </div>
-      ) : (
-        <div className="flex min-h-[320px] items-center justify-center rounded-xl border border-dashed bg-muted/20 p-6 text-center text-sm text-muted-foreground">
-          <div className="flex max-w-sm flex-col items-center gap-2">
-            <AlertCircle className="size-5 text-muted-foreground/70" />
-            {company
-              ? "No non-financial data found for this company."
-              : "Select a company to load non-financial data."}
+
+        {/* Non-financial content panel */}
+        <div
+          className={cn(
+            "transition-opacity duration-300 ease-in-out",
+            dataCategory === "non_financial"
+              ? "relative z-[1] opacity-100"
+              : "pointer-events-none absolute inset-x-0 top-0 z-0 opacity-0",
+          )}
+          aria-hidden={dataCategory !== "non_financial"}
+        >
+          <div className="relative min-w-0">
+            {nfError && !nfData ? (
+              <Alert variant="destructive">
+                <AlertTitle>Non-financial data unavailable</AlertTitle>
+                <AlertDescription>{nfError}</AlertDescription>
+              </Alert>
+            ) : nfData ? (
+              <div className="rounded-xl border bg-card p-4">
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-semibold">Non-financial data</p>
+                    <p className="text-xs text-muted-foreground">
+                      {companyDisplayName || company}
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-[11px]"
+                    onClick={() => setShowMissingNf((s) => !s)}
+                    tabIndex={dataCategory === "non_financial" ? 0 : -1}
+                  >
+                    {showMissingNf ? "Hide" : "Show"} not-found
+                  </Button>
+                </div>
+
+                {nfData.companyOverview ? (
+                  <div className="mb-4 rounded-lg border bg-muted/20 px-3 py-2.5">
+                    <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      Company overview
+                    </span>
+                    <p className="mt-1 whitespace-pre-line text-sm leading-relaxed text-muted-foreground">
+                      {nfData.companyOverview}
+                    </p>
+                  </div>
+                ) : null}
+
+                {(nfData.categories ?? []).length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No categories stored for this report.
+                  </p>
+                ) : (
+                  <div className="flex flex-col gap-4">
+                    {(nfData.categories ?? []).map((cat) => {
+                      const metrics = Array.isArray(cat.metrics)
+                        ? cat.metrics
+                        : [];
+                      const found = metrics.filter((m) => m.found);
+                      const visible = showMissingNf ? metrics : found;
+                      if (visible.length === 0) return null;
+                      return (
+                        <div key={cat.key} className="flex flex-col gap-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-semibold">
+                              {cat.title}
+                            </span>
+                            <Badge variant="secondary" className="text-[10px]">
+                              {found.length}/{metrics.length}
+                            </Badge>
+                          </div>
+                          <ul className="grid grid-cols-1 gap-2 lg:grid-cols-2">
+                            {visible.map((m) => (
+                              <li
+                                key={m.key}
+                                className={cn(
+                                  "rounded-lg border px-3 py-2 text-xs shadow-sm",
+                                  m.found
+                                    ? "bg-card/60"
+                                    : "border-dashed bg-muted/20 opacity-70",
+                                )}
+                              >
+                                <div className="flex items-center gap-2">
+                                  {m.found ? (
+                                    <CheckCircle2 className="size-3.5 shrink-0 text-emerald-500" />
+                                  ) : (
+                                    <MinusCircle className="size-3.5 shrink-0 text-muted-foreground" />
+                                  )}
+                                  <span className="font-medium">{m.title}</span>
+                                  {m.found && m.pages?.length > 0 ? (
+                                    <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">
+                                      p.{m.pages.join(", ")}
+                                    </span>
+                                  ) : null}
+                                </div>
+                                {m.found ? (
+                                  <>
+                                    <div className="mt-1 text-muted-foreground">
+                                      {m.value}
+                                    </div>
+                                    {m.detail ? (
+                                      <div className="mt-0.5 text-[11px] text-muted-foreground/80">
+                                        {m.detail}
+                                      </div>
+                                    ) : null}
+                                  </>
+                                ) : (
+                                  <div className="mt-1 text-[11px] text-muted-foreground/70">
+                                    Not reported
+                                  </div>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            ) : !(nfDataLoading || nfLoading) ? (
+              <div className="flex min-h-[320px] items-center justify-center rounded-xl border border-dashed bg-muted/20 p-6 text-center text-sm text-muted-foreground">
+                <div className="flex max-w-sm flex-col items-center gap-2">
+                  <AlertCircle className="size-5 text-muted-foreground/70" />
+                  {company
+                    ? "No non-financial data found for this company."
+                    : "Select a company to load non-financial data."}
+                </div>
+              </div>
+            ) : (
+              <div className="min-h-[320px] rounded-xl border bg-card" />
+            )}
+
+            {(nfDataLoading || nfLoading) && dataCategory === "non_financial" ? (
+              <div
+                className={cn(
+                  "absolute inset-0 z-10 flex min-h-[320px] items-center justify-center rounded-xl",
+                  nfData
+                    ? "bg-background/70 backdrop-blur-[1px]"
+                    : "bg-card",
+                )}
+                aria-busy="true"
+                aria-live="polite"
+              >
+                <div className="flex items-center gap-2 rounded-lg border bg-card/95 px-3 py-2 text-sm text-muted-foreground shadow-sm">
+                  <Loader2 className="size-4 animate-spin" />
+                  Loading non-financial data…
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }
