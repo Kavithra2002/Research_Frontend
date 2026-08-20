@@ -135,7 +135,9 @@ function buildArgs(mode: ExtractMode, body: Record<string, unknown>): string[] {
   if (mode === "db-annual") {
     args.push("--years-stdin");
     if (companySlug) args.push("--company-slug", companySlug);
-    if (body.force === true) args.push("--force");
+    args.push("--force");
+    args.push("--use-pdf-extract");
+    args.push("--force-note-capture");
     return args;
   }
   if (mode === "db-quarterly") {

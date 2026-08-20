@@ -73,7 +73,8 @@ const BUTTONS: {
   {
     mode: "db-annual",
     label: "Run DB Annual",
-    description: "Build annual COMB/DB data from stored tables.",
+    description:
+      "COMB/DB annual extract: PDF statement values + note tables (same pipeline as Commercial Bank).",
     variant: "outline",
     needsAnnual: true,
     needsSelection: true,

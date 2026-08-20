@@ -81,8 +81,15 @@ function normalizeHeaderCell(value: string | undefined | null): string {
 
 function parseNoteAmount(raw: string | undefined | null): number | null {
   if (raw == null) return null;
-  let s = String(raw).replace(/,/g, "").replace(/\s+/g, "").trim();
+  let s = String(raw).replace(/\s+/g, " ").trim();
   if (!s || s === "-" || s === "—" || s === "–") return null;
+  const amountMatch = s.match(
+    /\(?-?\d{1,3}(?:,\d{3})+(?:\.\d+)?\)?|\(?-?\d{5,}(?:\.\d+)?\)?/g,
+  );
+  if (amountMatch && amountMatch.length > 0) {
+    s = amountMatch[amountMatch.length - 1];
+  }
+  s = s.replace(/,/g, "").replace(/\s+/g, "").trim();
   const neg = s.startsWith("(") && s.endsWith(")");
   if (neg) s = s.slice(1, -1);
   if (s.startsWith("+")) s = s.slice(1);
@@ -151,6 +158,7 @@ export function getNoteEntityAmountForYear(
   for (const raw of tables) {
     const table = resolveNoteEntityTable(raw, entity);
     const yearCol = findNoteYearColumnIndex(table, year);
+    if (yearCol < 0) continue;
     const rows = table.rows || [];
 
     if (parentLabel) {
@@ -215,58 +223,311 @@ export function findNoteYearColumnIndex(
   year: string,
 ): number {
   const yearRe = new RegExp(`\\b${year}\\b`);
-  for (const row of table.header_rows || []) {
-    for (let i = 0; i < row.length; i += 1) {
-      if (yearRe.test(String(row[i] ?? ""))) return i;
-    }
-  }
-  // Fallback: first amount column after label (+ optional note) — usually index 1 or 2.
+  const headerRows = table.header_rows || [];
   const width = Math.max(
     1,
-    ...(table.header_rows || []).map((r) => r.length),
+    ...headerRows.map((row) => row.length),
     ...(table.rows || []).map((r) => r.cells?.length ?? 0),
   );
-  if (width >= 3) return 2;
-  return Math.min(1, width - 1);
+
+  const columnHeader = (index: number) =>
+    headerRows.map((row) => String(row[index] ?? "")).join("\n");
+
+    const isRateOrMeta = (text: string) => {
+    const n = normalizeHeaderCell(text);
+    if (!n) return false;
+    if (
+      n === "NOTE" ||
+      n === "PAGE NO." ||
+      n === "PAGE NO" ||
+      n === "PAGE" ||
+      n === "REF"
+    ) {
+      return true;
+    }
+    return /%|tax rate|applicable|change/i.test(text);
+  };
+
+  const columnLooksLikeTaxRate = (index: number) => {
+    const text = columnHeader(index);
+    if (isRateOrMeta(text)) return true;
+    const compact = normalizeHeaderCell(text).replace(/\s+/g, " ");
+    if (/^\d{1,2}(\.\d+)?%?$/.test(compact)) return true;
+    const nums: number[] = [];
+    for (const row of table.rows || []) {
+      const n = parseNoteAmount(row.cells?.[index]);
+      if (n != null) nums.push(Math.abs(n));
+    }
+    return nums.length >= 3 && nums.every((v) => v > 0 && v <= 100);
+  };
+
+  const columnAmountMagnitude = (index: number) => {
+    let max = 0;
+    for (const row of table.rows || []) {
+      const n = parseNoteAmount(row.cells?.[index]);
+      if (n != null) max = Math.max(max, Math.abs(n));
+    }
+    return max;
+  };
+
+  let best = -1;
+  let bestScore = -1;
+  for (let i = 1; i < width; i += 1) {
+    const text = columnHeader(i);
+    if (isRateOrMeta(text) || columnLooksLikeTaxRate(i)) continue;
+    if (!yearRe.test(text)) continue;
+    let score = 10;
+    if (/rs\.?|lkr|'000/i.test(text)) score += 6;
+    if (/\bgroup\b/i.test(text)) score += 3;
+    const mag = columnAmountMagnitude(i);
+    if (mag >= 1000) score += 8;
+    else if (mag > 0 && mag <= 100) score -= 12;
+    if (score > bestScore) {
+      bestScore = score;
+      best = i;
+    }
+  }
+  if (best >= 0) return best;
+
+  for (let i = 1; i < width; i += 1) {
+    const text = columnHeader(i);
+    if (isRateOrMeta(text) || columnLooksLikeTaxRate(i)) continue;
+    if (/rs\.?|lkr|'000/i.test(text) || /\bgroup\b/i.test(text)) return i;
+  }
+
+  let fallback = -1;
+  let fallbackMag = -1;
+  for (let i = 1; i < width; i += 1) {
+    if (isRateOrMeta(columnHeader(i)) || columnLooksLikeTaxRate(i)) continue;
+    const mag = columnAmountMagnitude(i);
+    if (mag > fallbackMag) {
+      fallbackMag = mag;
+      fallback = i;
+    }
+  }
+  if (fallback >= 0 && fallbackMag >= 1000) return fallback;
+  return -1;
+}
+
+const MONTH_NAMES =
+  "january|february|march|april|may|june|july|august|september|october|november|december";
+const MONTH_DAY_RE = new RegExp(`\\b(${MONTH_NAMES})\\s+0*(\\d{1,2})\\b`, "gi");
+const DAY_MONTH_RE = new RegExp(`\\b0*(\\d{1,2})\\s+(${MONTH_NAMES})\\b`, "gi");
+const OPPOSING_LABEL_PAIRS: Array<[string, string]> = [
+  ["january", "december"],
+  ["opening", "closing"],
+  ["income", "expense"],
+  ["asset", "liability"],
+  ["addition", "disposal"],
+  ["debit", "credit"],
+];
+
+/** Vertical PDF margin text is often OCR'd backwards (statements → stnemetats). */
+const MARGIN_FORWARD_WORDS = [
+  "statements",
+  "financial",
+  "notes",
+  "note",
+  "report",
+  "annual",
+  "pages",
+  "page",
+  "year",
+  "these",
+  "form",
+  "part",
+  "integral",
+  "the",
+  "to",
+] as const;
+
+function sidebarNoiseTokens(): string[] {
+  const tokens = new Set<string>(["eht", "ot"]);
+  for (const word of MARGIN_FORWARD_WORDS) {
+    const reversed = word.split("").reverse().join("");
+    tokens.add(reversed);
+    const minN = reversed.length >= 8 ? 3 : Math.min(4, reversed.length);
+    for (let n = minN; n <= reversed.length; n += 1) {
+      tokens.add(reversed.slice(0, n));
+    }
+  }
+  return [...tokens].sort((a, b) => b.length - a.length);
+}
+
+const SIDEBAR_NOISE_TOKEN_LIST = sidebarNoiseTokens();
+const SIDEBAR_NOISE_TOKEN_SET = new Set(SIDEBAR_NOISE_TOKEN_LIST);
+const SIDEBAR_NOISE_ALTS = SIDEBAR_NOISE_TOKEN_LIST.join("|");
+const SIDEBAR_NOISE_RE = new RegExp(`\\b(?:${SIDEBAR_NOISE_ALTS})\\b`, "gi");
+const SIDEBAR_NOISE_TRAILING_RE = new RegExp(`(?:${SIDEBAR_NOISE_ALTS})$`, "i");
+const MARGIN_FORWARD_SET = new Set<string>(MARGIN_FORWARD_WORDS);
+
+function isLabelNoiseToken(token: string): boolean {
+  const text = token.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  if (!text) return true;
+  if (SIDEBAR_NOISE_TOKEN_SET.has(text)) return true;
+  if (/^\d{3,4}$/.test(text)) return true;
+  return MARGIN_FORWARD_SET.has(text.split("").reverse().join(""));
+}
+
+function stripSidebarNoise(text: string): string {
+  SIDEBAR_NOISE_RE.lastIndex = 0;
+  const cleaned = text
+    .replace(SIDEBAR_NOISE_RE, " ")
+    .replace(SIDEBAR_NOISE_TRAILING_RE, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const parts = cleaned.split(" ").filter(Boolean);
+  while (parts.length > 1 && isLabelNoiseToken(parts[parts.length - 1] ?? "")) {
+    parts.pop();
+  }
+  return parts.join(" ");
+}
+
+function collapseTotalLikeLabel(text: string): string {
+  const match = text.match(/^((?:sub)?totals?)\b(.*)$/i);
+  if (!match) return text;
+  const head = match[1] ?? text;
+  const rest = (match[2] ?? "").trim();
+  if (!rest) return head;
+  const tokens = rest.match(/[A-Za-z0-9]+/g) ?? [];
+  if (tokens.length && tokens.every(isLabelNoiseToken)) return head;
+  return text;
+}
+
+function titleMonth(value: string): string {
+  return value.slice(0, 1).toUpperCase() + value.slice(1).toLowerCase();
+}
+
+/** Stable printed label: dates, trailing commas, footnote markers. */
+export function canonicalizeNoteDisplayLabel(label: string): string {
+  MONTH_DAY_RE.lastIndex = 0;
+  DAY_MONTH_RE.lastIndex = 0;
+  let text = String(label || "")
+    .replace(/\u00a0/g, " ")
+    .replace(/[\u2010-\u2015\u2212]/g, "-")
+    .replace(/\s+/g, " ")
+    .replace(/\s*\(\*+\)\s*$/g, "")
+    .replace(/\s*\*+\s*$/g, "")
+    .replace(/\s*\[[0-9a-z]+\]\s*$/gi, "")
+    .trim();
+  text = stripSidebarNoise(text);
+  text = text.replace(MONTH_DAY_RE, (_, month: string, day: string) => {
+    return `${titleMonth(month)} ${Number(day)}`;
+  });
+  text = text.replace(DAY_MONTH_RE, (_, day: string, month: string) => {
+    return `${Number(day)} ${titleMonth(month)}`;
+  });
+  return collapseTotalLikeLabel(text.replace(/[,:;]+$/g, "").trim());
 }
 
 /**
- * Normalize note line labels so cross-year merges ignore footnotes / punctuation
- * (e.g. "...customers" vs "...customers (*)").
+ * Normalize note line labels so cross-year merges ignore footnotes, dates,
+ * and punctuation (e.g. "January 01," vs "January 1").
  */
 export function normalizeNoteBreakdownLabel(label: string): string {
-  return String(label || "")
-    .replace(/\u00a0/g, " ")
-    .replace(/[\u2010-\u2015\u2212]/g, "-") // hyphen / en / em dashes
-    .replace(/\s+/g, " ")
-    .replace(/\s*\(\*+\)\s*$/g, "") // trailing (*) footnote
-    .replace(/\s*\*+\s*$/g, "") // trailing *
-    .replace(/\s*\[[0-9a-z]+\]\s*$/gi, "") // trailing [1]
-    .replace(/\s+/g, " ")
-    .trim()
-    .toLowerCase();
+  DAY_MONTH_RE.lastIndex = 0;
+  let text = canonicalizeNoteDisplayLabel(label).toLowerCase();
+  text = text.replace(DAY_MONTH_RE, (_, day: string, month: string) => {
+    return `${String(month).toLowerCase()} ${Number(day)}`;
+  });
+  text = text.replace(/\bprivate\b/g, "pvt").replace(/\blimited\b/g, "ltd");
+  return text.replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
 }
 
-/** Prefer the cleaner printed label (without footnote markers) for display. */
+function hasOpposingLabelTokens(left: string, right: string): boolean {
+  return OPPOSING_LABEL_PAIRS.some(
+    ([a, b]) =>
+      (left.includes(a) && right.includes(b)) ||
+      (left.includes(b) && right.includes(a)),
+  );
+}
+
+function labelKeysMatch(left: string, right: string): boolean {
+  if (!left || !right) return false;
+  if (left === right) return true;
+  if (hasOpposingLabelTokens(left, right)) return false;
+  const tokensA = new Set(left.split(" ").filter(Boolean));
+  const tokensB = new Set(right.split(" ").filter(Boolean));
+  if (tokensA.size && tokensB.size) {
+    const [smaller, larger] =
+      tokensA.size <= tokensB.size ? [tokensA, tokensB] : [tokensB, tokensA];
+    const extra = [...larger].filter((token) => !smaller.has(token));
+    const smallerIsSubset = [...smaller].every((token) => larger.has(token));
+    if (smallerIsSubset && extra.length && extra.every(isLabelNoiseToken)) {
+      return true;
+    }
+  }
+  if (!tokensA.size || !tokensB.size) return false;
+  let inter = 0;
+  for (const token of tokensA) if (tokensB.has(token)) inter += 1;
+  const union = tokensA.size + tokensB.size - inter;
+  const overlap = union ? inter / union : 0;
+  return overlap >= 0.85 && Math.abs(tokensA.size - tokensB.size) <= 3;
+}
+
+/** Prefer the complete printed label over a wrapped fragment. */
 function preferDisplayLabel(current: string, incoming: string): string {
-  const cleanIncoming = incoming
-    .replace(/\s+/g, " ")
-    .replace(/\s*\(\*+\)\s*$/g, "")
-    .replace(/\s*\*+\s*$/g, "")
-    .trim();
-  const cleanCurrent = current
-    .replace(/\s+/g, " ")
-    .replace(/\s*\(\*+\)\s*$/g, "")
-    .replace(/\s*\*+\s*$/g, "")
-    .trim();
-  // Prefer version without footnote marker; otherwise keep shorter clean form.
+  const cleanIncoming = canonicalizeNoteDisplayLabel(incoming);
+  const cleanCurrent = canonicalizeNoteDisplayLabel(current);
+  const a = cleanCurrent.toLowerCase();
+  const b = cleanIncoming.toLowerCase();
+  const noise = (label: string) =>
+    label
+      .toLowerCase()
+      .split(/\s+/)
+      .filter(Boolean)
+      .filter(isLabelNoiseToken).length;
+  if (a && b && (a.endsWith(b) || b.endsWith(a) || a.includes(b) || b.includes(a))) {
+    const scoreA = noise(cleanCurrent);
+    const scoreB = noise(cleanIncoming);
+    if (scoreA !== scoreB) {
+      return scoreA < scoreB ? cleanCurrent || current : cleanIncoming || incoming;
+    }
+    return cleanIncoming.length >= cleanCurrent.length
+      ? cleanIncoming || incoming
+      : cleanCurrent || current;
+  }
   if (/\(\*+\)|\*$/.test(current) && !/\(\*+\)|\*$/.test(incoming)) {
     return cleanIncoming || incoming;
   }
-  if (cleanIncoming.length > 0 && cleanIncoming.length < cleanCurrent.length) {
-    return cleanIncoming;
-  }
   return cleanCurrent || current;
+}
+
+function isWrapFragmentOf(shortKey: string, longKey: string): boolean {
+  if (!shortKey || !longKey || shortKey === longKey) return false;
+  if (shortKey.length < 12 || !longKey.endsWith(shortKey)) return false;
+  if (/^[a-z]/.test(shortKey)) return true;
+  const prefix = longKey
+    .slice(0, longKey.length - shortKey.length)
+    .replace(/[\s-–—]+$/g, "")
+    .trim();
+  return /^(financial assets at amortised cost|financial assets measured at fair value through|financial assets recognised through profit or loss)$/i.test(
+    prefix,
+  );
+}
+
+function findRelatedBreakdownAcc<T extends { label: string; values?: Record<string, number | null> }>(
+  byNorm: Map<string, T>,
+  norm: string,
+  year?: string,
+): T | undefined {
+  const exact = byNorm.get(norm);
+  if (exact) return exact;
+  const candidates: T[] = [];
+  for (const [key, acc] of byNorm) {
+    if (key === norm) continue;
+    if (year && acc.values && acc.values[year] != null) continue;
+    const longKey = key.length >= norm.length ? key : norm;
+    const shortKey = key.length < norm.length ? key : norm;
+    if (isWrapFragmentOf(shortKey, longKey) || labelKeysMatch(key, norm)) {
+      candidates.push(acc);
+    }
+  }
+  if (candidates.length === 1) return candidates[0];
+  if (candidates.length > 1) {
+    return [...candidates].sort((a, b) => b.label.length - a.label.length)[0];
+  }
+  return undefined;
 }
 
 /**
@@ -274,8 +535,8 @@ function preferDisplayLabel(current: string, incoming: string): string {
  * Labels are shared across years; values follow Group or Bank/Company.
  * These lines are display-only (not FS keywords / not search catalog entries).
  *
- * Row order prefers the year with the most complete table; Total rows always
- * sort last. All capture segments for a year are merged in order.
+ * Complete rows (a value in every year that has this note) sort first.
+ * Partial rows follow, ordered by how many years they appear in.
  */
 export function buildNoteBreakdownLines(
   noteTablesByYear: Record<string, NoteExtractedTable[]> | undefined,
@@ -292,6 +553,10 @@ export function buildNoteBreakdownLines(
   };
   const byNorm = new Map<string, Acc>();
   let orderCounter = 0;
+
+  const yearsWithTables = columnKeys.filter(
+    (year) => (noteTablesByYear[year]?.length ?? 0) > 0,
+  );
 
   const rowCountForYear = (year: string): number => {
     let count = 0;
@@ -336,19 +601,28 @@ export function buildNoteBreakdownLines(
     for (const rawTable of tables) {
       const table = resolveNoteEntityTable(rawTable, entity);
       const yearCol = findNoteYearColumnIndex(table, year);
+      if (yearCol < 0) continue;
 
       for (const row of table.rows || []) {
         const styleRaw = row.style;
         const style =
           typeof styleRaw === "string" ? styleRaw.toLowerCase() : "";
         if (style === "blank") continue;
-        const rawLabel = String(row.cells?.[0] ?? "")
-          .replace(/\s+/g, " ")
-          .trim();
+        const rawLabel = canonicalizeNoteDisplayLabel(
+          String(row.cells?.[0] ?? "").replace(/\s+/g, " ").trim(),
+        );
         if (!rawLabel) continue;
+        if (
+          rawLabel.length > 140 ||
+          /accounting policy|the group measures|slfrs\s*\d|lkas\s*\d/i.test(
+            rawLabel,
+          )
+        ) {
+          continue;
+        }
         const norm = normalizeNoteBreakdownLabel(rawLabel);
         if (!norm) continue;
-        let acc = byNorm.get(norm);
+        let acc = findRelatedBreakdownAcc(byNorm, norm, year);
         if (!acc) {
           acc = {
             label: preferDisplayLabel(rawLabel, rawLabel),
@@ -360,6 +634,13 @@ export function buildNoteBreakdownLines(
         } else {
           acc.label = preferDisplayLabel(acc.label, rawLabel);
           if (style && !acc.style) acc.style = style;
+          const longerNorm =
+            normalizeNoteBreakdownLabel(acc.label).length >= norm.length
+              ? normalizeNoteBreakdownLabel(acc.label)
+              : norm;
+          if (longerNorm !== norm && !byNorm.has(longerNorm)) {
+            byNorm.set(longerNorm, acc);
+          }
         }
         // Prefer first non-null value if a later segment/year already filled it.
         if (acc.values[year] == null) {
@@ -369,14 +650,46 @@ export function buildNoteBreakdownLines(
     }
   }
 
-  return [...byNorm.values()]
-    .sort((a, b) => {
-      const aTot = isTotalLike(a.label, a.style);
-      const bTot = isTotalLike(b.label, b.style);
-      if (aTot !== bTot) return aTot ? 1 : -1;
-      return a.order - b.order;
-    })
-    .map(({ label, style, values }) => ({ label, style, values }));
+  const unique: Acc[] = [];
+  const seenAcc = new Set<Acc>();
+  for (const acc of byNorm.values()) {
+    if (seenAcc.has(acc)) continue;
+    seenAcc.add(acc);
+    unique.push(acc);
+  }
+
+  const filledCount = (acc: Acc) =>
+    yearsWithTables.filter((year) => acc.values[year] != null).length;
+  const isComplete = (acc: Acc) =>
+    yearsWithTables.length > 0 && filledCount(acc) === yearsWithTables.length;
+
+  const complete = unique.filter(isComplete);
+  const partial = unique.filter((acc) => !isComplete(acc));
+  const bySourceOrder = (a: Acc, b: Acc) => a.order - b.order;
+  complete.sort((a, b) => {
+    const aTot = isTotalLike(a.label, a.style);
+    const bTot = isTotalLike(b.label, b.style);
+    if (aTot !== bTot) return aTot ? 1 : -1;
+    return bySourceOrder(a, b);
+  });
+  partial.sort((a, b) => {
+    const diff = filledCount(b) - filledCount(a);
+    if (diff !== 0) return diff;
+    return bySourceOrder(a, b);
+  });
+
+  const ordered: Acc[] = [...complete];
+  if (partial.length) {
+    ordered.push({
+      label: "Reported in some years only",
+      style: "section",
+      values: {},
+      order: orderCounter,
+    });
+    ordered.push(...partial);
+  }
+
+  return ordered.map(({ label, style, values }) => ({ label, style, values }));
 }
 
 function isGroupLabel(value: string | undefined | null): boolean {

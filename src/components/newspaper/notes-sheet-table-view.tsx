@@ -3,7 +3,6 @@
 import * as React from "react";
 import { ChevronDown, ChevronRight, Search, StickyNote, X } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import {
@@ -32,16 +31,6 @@ import {
   useResizableDescriptionWidth,
 } from "@/components/newspaper/resizable-description-column";
 
-const SECTION_ROW_BG = "bg-blue-900 dark:bg-blue-950";
-const SECTION_LABEL_CLASS = cn(
-  SECTION_ROW_BG,
-  "border-blue-800/60 text-blue-50 dark:border-blue-900 dark:text-blue-100",
-);
-const SECTION_SPAN_CLASS = cn(
-  SECTION_ROW_BG,
-  "border-blue-800/40 dark:border-blue-900",
-);
-
 const SUBSECTION_ROW_BG = "bg-sky-950/90 dark:bg-sky-950";
 const SUBSECTION_LABEL_CLASS = cn(
   SUBSECTION_ROW_BG,
@@ -57,7 +46,6 @@ type NotesSheetTableViewProps = {
   unit: string;
   years: number[];
   rows: DbGridRow[];
-  notesExtractedYears?: number[];
   className?: string;
   amountDisplay?: DbAmountDisplay;
   onAmountDisplayChange?: (display: DbAmountDisplay) => void;
@@ -91,7 +79,6 @@ export function NotesSheetTableView({
   unit,
   years,
   rows,
-  notesExtractedYears = [],
   className,
   amountDisplay = "raw",
   onAmountDisplayChange,
@@ -299,8 +286,6 @@ export function NotesSheetTableView({
     [rows, rowSearchQuery],
   );
 
-  const totalNoteRows = rows.filter((r) => r.has_notes).length;
-  const filteredNoteRows = filteredRows.filter((r) => r.has_notes).length;
   const isFiltering = rowSearchQuery.trim().length > 0;
 
   React.useEffect(() => {
@@ -330,7 +315,6 @@ export function NotesSheetTableView({
   }, [detailLevel, rows, years]);
 
   const displayUnit = formatDbUnitForDisplay(unit, amountDisplay);
-  const noteRowCount = totalNoteRows;
   const colSpan = columnKeys.length + 1;
 
   const openCaptureForRow = React.useCallback(
@@ -384,8 +368,8 @@ export function NotesSheetTableView({
                 Notes
               </h3>
               <p className="truncate text-xs text-muted-foreground">
-                {periodLabel} · {displayUnit} · Click yellow rows to expand note
-                line items under Description
+                {periodLabel} · {displayUnit} · Use the drop button next to a
+                description to expand its note table
               </p>
             </div>
           </div>
@@ -427,16 +411,6 @@ export function NotesSheetTableView({
                 <option value="k">Thousands (K)</option>
               </select>
             ) : null}
-            {notesExtractedYears.length > 0 ? (
-              <Badge variant="secondary" className="text-[10px]">
-                Captures: {notesExtractedYears.join(", ")}
-              </Badge>
-            ) : null}
-            <Badge variant="secondary" className="text-[10px]">
-              {isFiltering
-                ? `${filteredNoteRows} of ${noteRowCount} note line items`
-                : `${noteRowCount} note line items`}
-            </Badge>
           </div>
         </header>
 
@@ -539,25 +513,7 @@ export function NotesSheetTableView({
               ) : null}
               {filteredRows.map((row, idx) => {
                 if (row.kind === "section") {
-                  return (
-                    <tr key={`${row.label}-${idx}`} className={SECTION_ROW_BG}>
-                      <td
-                        className={cn(
-                          "sticky left-0 z-30 border-b px-3 py-2 text-xs font-bold uppercase tracking-wide",
-                          STICKY_DESCRIPTION_EDGE,
-                          SECTION_LABEL_CLASS,
-                        )}
-                        style={descriptionColumnStyle(descriptionWidth)}
-                      >
-                        {row.label}
-                      </td>
-                      <td
-                        colSpan={columnKeys.length}
-                        className={cn("border-b", SECTION_SPAN_CLASS)}
-                        aria-hidden
-                      />
-                    </tr>
-                  );
+                  return null;
                 }
 
                 if (row.kind === "subsection") {
@@ -587,10 +543,6 @@ export function NotesSheetTableView({
 
                 const stripedEven = dataRowCounter % 2 === 1;
                 dataRowCounter += 1;
-                const hasNotes = Boolean(row.has_notes);
-                const hasAnyCapture = columnKeys.some(
-                  (key) => row.note_source_by_year?.[key],
-                );
                 const hasExtractedTables = columnKeys.some(
                   (key) => (row.note_tables_by_year?.[key]?.length ?? 0) > 0,
                 );
@@ -624,31 +576,13 @@ export function NotesSheetTableView({
                         className={cn(
                           "sticky left-0 z-30 border-b p-0 text-left transition-colors",
                           STICKY_DESCRIPTION_EDGE,
-                          hasNotes
-                            ? "cursor-pointer bg-yellow-100 hover:bg-yellow-200/90 dark:bg-yellow-900 dark:hover:bg-yellow-800/90"
-                            : stripedEven
-                              ? "bg-muted"
-                              : "bg-card",
+                          stripedEven ? "bg-muted" : "bg-card",
                           hoveredRowKey === `parent-${idx}` &&
-                            (hasNotes
-                              ? "bg-yellow-200 dark:bg-yellow-800"
-                              : "bg-sky-500/15 dark:bg-sky-400/15"),
+                            "bg-sky-500/15 dark:bg-sky-400/15",
                           descriptionActive &&
-                            "ring-2 ring-inset ring-yellow-500/70",
+                            "ring-2 ring-inset ring-sky-500/50",
                         )}
                         style={descriptionColumnStyle(descriptionWidth)}
-                        onClick={
-                          hasNotes ? () => openCaptureForRow(row) : undefined
-                        }
-                        title={
-                          hasNotes
-                            ? hasExtractedTables
-                              ? "Expand or collapse note line items under Description"
-                              : hasAnyCapture
-                                ? "Click to view note table captures by year"
-                                : "Note table available (capture pending)"
-                            : undefined
-                        }
                       >
                         <TruncatedDescriptionCell
                           className="px-3 py-1.5"
@@ -658,21 +592,49 @@ export function NotesSheetTableView({
                           }
                           leading={
                             hasExtractedTables ? (
-                              expanded ? (
-                                <ChevronDown className="size-4 shrink-0" />
-                              ) : (
-                                <ChevronRight className="size-4 shrink-0" />
-                              )
+                              <button
+                                type="button"
+                                data-no-pan
+                                className={cn(
+                                  "inline-flex size-5 shrink-0 items-center justify-center rounded border border-border/70 bg-background/80 text-muted-foreground shadow-sm",
+                                  "hover:bg-muted hover:text-foreground",
+                                  "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+                                  expanded && "bg-muted text-foreground",
+                                )}
+                                aria-expanded={expanded}
+                                aria-label={
+                                  expanded
+                                    ? `Collapse note table for ${row.label}`
+                                    : `Expand note table for ${row.label}`
+                                }
+                                title={
+                                  expanded
+                                    ? "Collapse note table"
+                                    : "Expand note table"
+                                }
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  openCaptureForRow(row);
+                                }}
+                              >
+                                {expanded ? (
+                                  <ChevronDown className="size-3.5" />
+                                ) : (
+                                  <ChevronRight className="size-3.5" />
+                                )}
+                              </button>
                             ) : (
-                              <span className="size-4 shrink-0" />
+                              <span className="size-5 shrink-0" aria-hidden />
                             )
                           }
                         />
                       </td>
                       {columnKeys.map((key) => {
-                        // Parent FS/workbook amounts stay fixed; Group/Bank only
-                        // switches indented note-breakdown values below.
-                        const value = row.values[key];
+                        // Prefer stored BANK map when Entity=Bank; else GROUP (values).
+                        const value =
+                          noteEntity === "bank"
+                            ? (row.values_bank?.[key] ?? row.values[key])
+                            : row.values[key];
                         const empty = value == null;
                         const status = row.statuses?.[key];
                         const confirmedAbsent = status === "confirmed_absent";
@@ -745,7 +707,7 @@ export function NotesSheetTableView({
                           >
                             <div
                               className={cn(
-                                "flex items-start gap-1.5 border-l-2 border-yellow-500/50 py-1.5 pl-5 pr-3 text-[0.78rem] leading-snug",
+                                "flex items-start gap-1.5 border-l-2 border-border/60 py-1.5 pl-5 pr-3 text-[0.78rem] leading-snug",
                                 isTotal && "font-bold text-amber-950 dark:text-amber-50",
                                 isSubtotal && "font-semibold",
                                 isSection && "font-semibold text-teal-100",

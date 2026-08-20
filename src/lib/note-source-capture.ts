@@ -1,7 +1,7 @@
 import {
   buildDemoPdfViewerUrl,
   demoPdfRelPathFromSource,
-} from "@/lib/demo-data";
+} from "@/lib/demo-data-client";
 import type { DbGridRow } from "@/lib/newspaper-db";
 
 type NoteSourceMeta = NonNullable<DbGridRow["note_source_by_year"]>[string];

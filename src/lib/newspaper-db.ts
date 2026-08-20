@@ -23,6 +23,8 @@ export type DbGridRow = {
   label: string;
   kind: "section" | "subsection" | "data" | "check" | string;
   values: Record<string, number | null>;
+  /** BANK entity amounts when dual Group/Bank extraction is available */
+  values_bank?: Record<string, number | null>;
   statuses?: Record<string, string>;
   has_notes?: boolean;
   drivers_row?: number;
@@ -140,11 +142,11 @@ export type DbPreview =
   | DbNotesPreview;
 
 export function isQuarterlyDbAvailable(companySlug: string | null): boolean {
-  return companySlug === COMMERCIAL_BANK_SLUG;
+  return Boolean(companySlug?.trim());
 }
 
 export function isCombPilotAvailable(companySlug: string | null): boolean {
-  return companySlug === COMMERCIAL_BANK_SLUG;
+  return Boolean(companySlug?.trim());
 }
 
 export function formatDbAmount(value: number | null | undefined): string {

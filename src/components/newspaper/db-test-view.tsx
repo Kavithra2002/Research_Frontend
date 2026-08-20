@@ -12,6 +12,7 @@ import {
 
 import { FsSheetTableView } from "@/components/newspaper/fs-sheet-table-view";
 import { NotesSheetTableView } from "@/components/newspaper/notes-sheet-table-view";
+import { DateCompactSelect } from "@/components/newspaper/date-compact-select";
 import {
   noteTablesHaveBankEntity,
   type NoteEntityPanel,
@@ -25,6 +26,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
+import { fetchApiJson } from "@/lib/fetch-api-json";
 import { cn } from "@/lib/utils";
 import {
   type DbAmountDisplay,
@@ -32,7 +34,6 @@ import {
   type DbNotesPreview,
   type DbPreview,
   type DbQuarterlyPreview,
-  isCombPilotAvailable,
 } from "@/lib/newspaper-db";
 
 type DetailLevel = "summary" | "detailed";
@@ -224,25 +225,49 @@ function monthShort(month: number | null): string {
   return MONTH_OPTIONS.find((m) => m.value === month)?.label ?? "";
 }
 
+function daysInMonth(year: number, month: number): number {
+  return new Date(year, month, 0).getDate();
+}
+
+function dayOptions(year: number | null, month: number | null): number[] {
+  if (year == null || month == null) return [];
+  const count = daysInMonth(year, month);
+  return Array.from({ length: count }, (_, i) => i + 1);
+}
+
+function clampDay(
+  day: number | null,
+  year: number | null,
+  month: number | null,
+): number | null {
+  if (day == null || year == null || month == null) return null;
+  return Math.min(day, daysInMonth(year, month));
+}
+
+function formatDatePart(
+  year: number | null,
+  month: number | null,
+  day: number | null,
+): string | null {
+  if (year == null) return null;
+  if (month != null && day != null) {
+    return `${day} ${monthShort(month)} ${year}`;
+  }
+  if (month != null) return `${monthShort(month)} ${year}`;
+  return String(year);
+}
+
 function formatYearRangeLabel(
   fromYear: number | null,
   toYear: number | null,
   fromMonth: number | null = null,
   toMonth: number | null = null,
+  fromDay: number | null = null,
+  toDay: number | null = null,
 ): string {
   if (fromYear == null && toYear == null) return "Year range";
-  const fromPart =
-    fromYear != null
-      ? fromMonth != null
-        ? `${monthShort(fromMonth)} ${fromYear}`
-        : String(fromYear)
-      : null;
-  const toPart =
-    toYear != null
-      ? toMonth != null
-        ? `${monthShort(toMonth)} ${toYear}`
-        : String(toYear)
-      : null;
+  const fromPart = formatDatePart(fromYear, fromMonth, fromDay);
+  const toPart = formatDatePart(toYear, toMonth, toDay);
   if (fromPart && toPart) {
     return fromPart === toPart ? fromPart : `${fromPart} – ${toPart}`;
   }
@@ -257,6 +282,8 @@ function filterColumns(args: {
   toYear: number | null;
   fromMonth: number | null;
   toMonth: number | null;
+  fromDay: number | null;
+  toDay: number | null;
 }): { labels: string[]; keys: string[] } {
   const {
     labels,
@@ -266,6 +293,8 @@ function filterColumns(args: {
     toYear,
     fromMonth,
     toMonth,
+    fromDay,
+    toDay,
   } = args;
   let nextLabels = [...labels];
   let nextKeys = [...keys];
@@ -315,20 +344,23 @@ function filterColumns(args: {
   if (fromYear != null || toYear != null) {
     const from =
       fromYear != null
-        ? new Date(fromYear, (fromMonth ?? 1) - 1, 1)
-        : null;
-    const toYearResolved = toYear ?? fromYear;
-    const to =
-      toYearResolved != null
         ? new Date(
-            toYearResolved,
-            toMonth ?? 12,
-            0,
-            23,
-            59,
-            59,
+            fromYear,
+            (fromMonth ?? 1) - 1,
+            fromMonth != null ? (fromDay ?? 1) : 1,
           )
         : null;
+    const toYearResolved = toYear ?? fromYear;
+    let to: Date | null = null;
+    if (toYearResolved != null) {
+      if (toMonth != null) {
+        const day =
+          toDay ?? daysInMonth(toYearResolved, toMonth);
+        to = new Date(toYearResolved, toMonth - 1, day, 23, 59, 59);
+      } else {
+        to = new Date(toYearResolved, 11, 31, 23, 59, 59);
+      }
+    }
     const filtered: { label: string; key: string }[] = [];
     nextKeys.forEach((key, i) => {
       const label = nextLabels[i] ?? key;
@@ -371,6 +403,8 @@ export function DbTestView({
   const [toYear, setToYear] = React.useState<number | null>(null);
   const [fromMonth, setFromMonth] = React.useState<number | null>(null);
   const [toMonth, setToMonth] = React.useState<number | null>(null);
+  const [fromDay, setFromDay] = React.useState<number | null>(null);
+  const [toDay, setToDay] = React.useState<number | null>(null);
   const [yearRangeOpen, setYearRangeOpen] = React.useState(false);
   const [amountDisplay, setAmountDisplay] =
     React.useState<DbAmountDisplay>("raw");
@@ -395,7 +429,6 @@ export function DbTestView({
   const [nfDataLoading, setNfDataLoading] = React.useState(false);
   const [showMissingNf, setShowMissingNf] = React.useState(false);
 
-  const pilotMode = isCombPilotAvailable(company);
   const mountedRef = React.useRef(true);
   const previewRef = React.useRef(preview);
   previewRef.current = preview;
@@ -425,38 +458,23 @@ export function DbTestView({
     }
 
     try {
-      // Annual (+ optional statement section) → Notes workbook.
-      // Statement filtering is client-side — do not refetch when it changes.
+      // Annual: Notes view for every company (stable description rows +
+      // expandable note tables). Statement filtering is client-side.
       if (period === "annual") {
-        if (!pilotMode) {
-          throw new Error(
-            "Annual Notes view is available for Commercial Bank of Ceylon PLC (COMB pilot).",
-          );
-        }
-        const qs = new URLSearchParams({ view: "notes", company });
-        const res = await fetch(`/api/db/preview?${qs}`, { cache: "no-store" });
-        const json = (await res.json()) as DbPreview & { error?: string };
-        if (!res.ok) {
-          throw new Error(json.error ?? `Notes preview failed (${res.status})`);
-        }
+        const qs = new URLSearchParams({
+          view: "notes",
+          company,
+        });
+        const json = await fetchApiJson<DbPreview>(`/api/db/preview?${qs}`);
         if (!mountedRef.current) return;
         setPreview(json);
         financialCacheKeyRef.current = cacheKey;
         return;
       }
 
-      // Quarterly / Q1–Q4 / 6M / 9M / TTM — no statement selected.
-      if (!pilotMode) {
-        throw new Error(
-          "Quarterly periods are available for Commercial Bank of Ceylon PLC (COMB pilot).",
-        );
-      }
+      // Quarterly / Q1–Q4 / 6M / 9M / TTM
       const qs = new URLSearchParams({ view: "quarterly", company });
-      const res = await fetch(`/api/db/preview?${qs}`, { cache: "no-store" });
-      const json = (await res.json()) as DbPreview & { error?: string };
-      if (!res.ok) {
-        throw new Error(json.error ?? `Preview failed (${res.status})`);
-      }
+      const json = await fetchApiJson<DbPreview>(`/api/db/preview?${qs}`);
       if (!mountedRef.current) return;
       setPreview(json);
       financialCacheKeyRef.current = cacheKey;
@@ -468,7 +486,7 @@ export function DbTestView({
     } finally {
       if (mountedRef.current) setLoading(false);
     }
-  }, [company, period, pilotMode, refreshToken]);
+  }, [company, period, refreshToken]);
 
   React.useEffect(() => {
     if (period !== "annual" && detailLevel !== "summary") {
@@ -622,13 +640,17 @@ export function DbTestView({
         toYear,
         fromMonth,
         toMonth,
+        fromDay,
+        toDay,
       }),
     [
+      fromDay,
       fromMonth,
       fromYear,
       period,
       rawColumnKeys,
       rawColumnLabels,
+      toDay,
       toMonth,
       toYear,
     ],
@@ -646,12 +668,16 @@ export function DbTestView({
     if (statement === "soce") return [];
     const rows = preview?.rows ?? [];
     if (!rows.length) return [];
-    // Annual Notes + statement selected → that section only; otherwise full sheet.
-    if (isAnnualNotesView && statement) {
+    const canFilterStatement =
+      Boolean(statement) &&
+      (isAnnualNotesView ||
+        preview?.view === "fs" ||
+        preview?.view === "quarterly");
+    if (canFilterStatement && statement && statement !== "soce") {
       return filterRowsByStatement(rows, statement);
     }
     return rows;
-  }, [isAnnualNotesView, preview?.rows, statement]);
+  }, [isAnnualNotesView, preview?.rows, preview?.view, statement]);
 
   // Derive Entity availability from the full Notes sheet, not the filtered
   // statement section — otherwise Group/Bank vanishes when switching statements.
@@ -663,6 +689,12 @@ export function DbTestView({
     for (const row of rows) {
       const meta = noteTablesHaveBankEntity(row.note_tables_by_year);
       if (meta.available) return meta;
+    }
+    const hasBankValues = rows.some((row) =>
+      Object.values(row.values_bank ?? {}).some((v) => v != null),
+    );
+    if (hasBankValues) {
+      return { available: true, bankLabel: "Bank" as string };
     }
     return { available: false, bankLabel: "Bank" as string };
   }, [preview]);
@@ -699,7 +731,9 @@ export function DbTestView({
     fromYear != null ||
     toYear != null ||
     fromMonth != null ||
-    toMonth != null;
+    toMonth != null ||
+    fromDay != null ||
+    toDay != null;
 
   const availableYears = React.useMemo(() => {
     const years = rawColumnKeys
@@ -708,31 +742,64 @@ export function DbTestView({
     return [...new Set(years)].sort((a, b) => a - b);
   }, [rawColumnKeys]);
 
+  const fromDayOptions = dayOptions(fromYear, fromMonth);
+  const toDayOptions = dayOptions(toYear, toMonth);
+
   const clearYearRange = React.useCallback(() => {
     setFromYear(null);
     setToYear(null);
     setFromMonth(null);
     setToMonth(null);
+    setFromDay(null);
+    setToDay(null);
     setYearRangeOpen(false);
   }, []);
 
   const updateFromYear = React.useCallback((year: number | null) => {
     setFromYear(year);
-    if (year == null) setFromMonth(null);
+    if (year == null) {
+      setFromMonth(null);
+      setFromDay(null);
+    } else {
+      setFromDay((d) => clampDay(d, year, fromMonth));
+    }
     setToYear((currentTo) => {
       if (year == null || currentTo == null) return currentTo;
       return currentTo < year ? year : currentTo;
     });
-  }, []);
+  }, [fromMonth]);
 
   const updateToYear = React.useCallback((year: number | null) => {
     setToYear(year);
-    if (year == null) setToMonth(null);
+    if (year == null) {
+      setToMonth(null);
+      setToDay(null);
+    } else {
+      setToDay((d) => clampDay(d, year, toMonth));
+    }
     setFromYear((currentFrom) => {
       if (year == null || currentFrom == null) return currentFrom;
       return currentFrom > year ? year : currentFrom;
     });
-  }, []);
+  }, [toMonth]);
+
+  const updateFromMonth = React.useCallback((month: number | null) => {
+    setFromMonth(month);
+    if (month == null) {
+      setFromDay(null);
+    } else {
+      setFromDay((d) => clampDay(d, fromYear, month));
+    }
+  }, [fromYear]);
+
+  const updateToMonth = React.useCallback((month: number | null) => {
+    setToMonth(month);
+    if (month == null) {
+      setToDay(null);
+    } else {
+      setToDay((d) => clampDay(d, toYear, month));
+    }
+  }, [toYear]);
 
   const selectStatement = React.useCallback((id: StatementType) => {
     // Toggle: click again to deselect and restore the full Annual table.
@@ -779,7 +846,7 @@ export function DbTestView({
                 }}
                 title={
                   viewControlsEnabled
-                    ? "Notes summary — expand yellow rows manually"
+                    ? "Notes summary — use the drop button to expand note tables"
                     : "Summary / Detailed only available for Annual period"
                 }
               >
@@ -873,10 +940,15 @@ export function DbTestView({
                               toYear,
                               fromMonth,
                               toMonth,
+                              fromDay,
+                              toDay,
                             )}
                           </span>
                         </PopoverTrigger>
-                        <PopoverContent align="start" className="w-80 p-3">
+                        <PopoverContent
+                          align="start"
+                          className="w-80 overflow-visible p-3"
+                        >
                           <div className="flex flex-col gap-3">
                             <div className="grid grid-cols-2 gap-3">
                               <div className="flex flex-col gap-2">
@@ -887,44 +959,42 @@ export function DbTestView({
                                   <span className="text-[10px] text-muted-foreground">
                                     Year
                                   </span>
-                                  <select
-                                    value={fromYear ?? ""}
-                                    onChange={(e) => {
-                                      const value = e.target.value;
-                                      updateFromYear(value ? Number(value) : null);
-                                    }}
-                                    className="h-8 rounded-md border border-input bg-background px-2 text-xs font-medium shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                  <DateCompactSelect
+                                    value={fromYear}
+                                    options={availableYears.map((year) => ({
+                                      value: year,
+                                      label: String(year),
+                                    }))}
+                                    onChange={updateFromYear}
                                     aria-label="From year"
-                                  >
-                                    <option value="">Any</option>
-                                    {availableYears.map((year) => (
-                                      <option key={`from-${year}`} value={year}>
-                                        {year}
-                                      </option>
-                                    ))}
-                                  </select>
+                                  />
                                 </label>
                                 <label className="flex flex-col gap-1">
                                   <span className="text-[10px] text-muted-foreground">
                                     Month
                                   </span>
-                                  <select
-                                    value={fromMonth ?? ""}
+                                  <DateCompactSelect
+                                    value={fromMonth}
+                                    options={MONTH_OPTIONS}
                                     disabled={fromYear == null}
-                                    onChange={(e) => {
-                                      const value = e.target.value;
-                                      setFromMonth(value ? Number(value) : null);
-                                    }}
-                                    className="h-8 rounded-md border border-input bg-background px-2 text-xs font-medium shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                                    onChange={updateFromMonth}
                                     aria-label="From month"
-                                  >
-                                    <option value="">Any</option>
-                                    {MONTH_OPTIONS.map((m) => (
-                                      <option key={`from-m-${m.value}`} value={m.value}>
-                                        {m.label}
-                                      </option>
-                                    ))}
-                                  </select>
+                                  />
+                                </label>
+                                <label className="flex flex-col gap-1">
+                                  <span className="text-[10px] text-muted-foreground">
+                                    Day
+                                  </span>
+                                  <DateCompactSelect
+                                    value={fromDay}
+                                    options={fromDayOptions.map((d) => ({
+                                      value: d,
+                                      label: String(d),
+                                    }))}
+                                    disabled={fromMonth == null}
+                                    onChange={setFromDay}
+                                    aria-label="From day"
+                                  />
                                 </label>
                               </div>
                               <div className="flex flex-col gap-2">
@@ -935,50 +1005,48 @@ export function DbTestView({
                                   <span className="text-[10px] text-muted-foreground">
                                     Year
                                   </span>
-                                  <select
-                                    value={toYear ?? ""}
-                                    onChange={(e) => {
-                                      const value = e.target.value;
-                                      updateToYear(value ? Number(value) : null);
-                                    }}
-                                    className="h-8 rounded-md border border-input bg-background px-2 text-xs font-medium shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                  <DateCompactSelect
+                                    value={toYear}
+                                    options={availableYears.map((year) => ({
+                                      value: year,
+                                      label: String(year),
+                                    }))}
+                                    onChange={updateToYear}
                                     aria-label="To year"
-                                  >
-                                    <option value="">Any</option>
-                                    {availableYears.map((year) => (
-                                      <option key={`to-${year}`} value={year}>
-                                        {year}
-                                      </option>
-                                    ))}
-                                  </select>
+                                  />
                                 </label>
                                 <label className="flex flex-col gap-1">
                                   <span className="text-[10px] text-muted-foreground">
                                     Month
                                   </span>
-                                  <select
-                                    value={toMonth ?? ""}
+                                  <DateCompactSelect
+                                    value={toMonth}
+                                    options={MONTH_OPTIONS}
                                     disabled={toYear == null}
-                                    onChange={(e) => {
-                                      const value = e.target.value;
-                                      setToMonth(value ? Number(value) : null);
-                                    }}
-                                    className="h-8 rounded-md border border-input bg-background px-2 text-xs font-medium shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                                    onChange={updateToMonth}
                                     aria-label="To month"
-                                  >
-                                    <option value="">Any</option>
-                                    {MONTH_OPTIONS.map((m) => (
-                                      <option key={`to-m-${m.value}`} value={m.value}>
-                                        {m.label}
-                                      </option>
-                                    ))}
-                                  </select>
+                                  />
+                                </label>
+                                <label className="flex flex-col gap-1">
+                                  <span className="text-[10px] text-muted-foreground">
+                                    Day
+                                  </span>
+                                  <DateCompactSelect
+                                    value={toDay}
+                                    options={toDayOptions.map((d) => ({
+                                      value: d,
+                                      label: String(d),
+                                    }))}
+                                    disabled={toMonth == null}
+                                    onChange={setToDay}
+                                    aria-label="To day"
+                                  />
                                 </label>
                               </div>
                             </div>
                             <div className="flex items-center justify-between gap-2">
                               <p className="text-[10px] text-muted-foreground">
-                                Pick year first, then month
+                                Pick year, then month, then day
                               </p>
                               <Button
                                 type="button"
@@ -1023,10 +1091,8 @@ export function DbTestView({
                           tabIndex={dataCategory === "financial" ? 0 : -1}
                           title={
                             opt.id === "annual"
-                              ? "Full Annual Notes table (statement filter optional)"
-                              : !pilotMode
-                                ? "Quarterly periods use COMB pilot data when available"
-                                : "Clears Statement selection"
+                              ? "Full Annual table (statement filter optional)"
+                              : "Clears Statement selection"
                           }
                         >
                           {opt.label}
@@ -1187,7 +1253,6 @@ export function DbTestView({
                   unit={unit}
                   years={notesYears}
                   rows={tableRows}
-                  notesExtractedYears={notesPreview?.notes_extracted_years}
                   amountDisplay={amountDisplay}
                   onAmountDisplayChange={setAmountDisplay}
                   companySlug={company ?? undefined}
@@ -1213,7 +1278,11 @@ export function DbTestView({
               ) : !loading ? (
                 <div className="flex min-h-[320px] items-center justify-center rounded-xl border border-dashed bg-muted/20 p-6 text-center text-sm text-muted-foreground">
                   {company
-                    ? "No rows match the current filters. Try another period, statement, or date range."
+                    ? period !== "annual" &&
+                      preview?.view === "quarterly" &&
+                      !((preview as DbQuarterlyPreview).cells_filled)
+                      ? "No quarterly figures are stored for this company yet. Run quarterly extraction (Test here), then Refresh."
+                      : "No rows match the current filters. Try another period, statement, or date range."
                     : "Select a company to load data."}
                 </div>
               ) : (

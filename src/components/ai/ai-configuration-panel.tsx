@@ -68,15 +68,19 @@ export type AiExtractionConfig = {
 };
 
 const DEFAULT_CONFIG: AiExtractionConfig = {
-  model: "gpt-4o",
+  model: "gpt-5",
   option: "1",
   dpi: 150,
 };
 
 const MODEL_OPTIONS = [
-  { value: "gpt-4o", label: "GPT-4o (higher quality)" },
-  { value: "gpt-4o-mini", label: "GPT-4o mini (faster, lower cost)" },
+  { value: "gpt-5", label: "GPT-5 (highest accuracy)" },
 ];
+
+function normalizeExtractionModel(model: string | undefined): string {
+  if (model && model.toLowerCase().startsWith("gpt-5")) return model;
+  return DEFAULT_CONFIG.model;
+}
 
 function loadConfig(): AiExtractionConfig {
   if (typeof window === "undefined") return DEFAULT_CONFIG;
@@ -85,7 +89,7 @@ function loadConfig(): AiExtractionConfig {
     if (!raw) return DEFAULT_CONFIG;
     const parsed = JSON.parse(raw) as Partial<AiExtractionConfig>;
     return {
-      model: parsed.model ?? DEFAULT_CONFIG.model,
+      model: normalizeExtractionModel(parsed.model),
       option: parsed.option === "2" ? "2" : "1",
       dpi:
         typeof parsed.dpi === "number" && parsed.dpi >= 72 && parsed.dpi <= 300
