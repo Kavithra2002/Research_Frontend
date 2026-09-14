@@ -28,6 +28,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
+import { peekWarmupJson } from "@/lib/warmup-data";
 
 type ReportFile = {
   name: string;
@@ -82,12 +83,13 @@ function buildFileUrl(
 }
 
 export function ReportsExplorer() {
-  const [companies, setCompanies] = React.useState<Company[]>([]);
-  const [loading, setLoading] = React.useState(true);
+  const warmed = peekWarmupJson<ApiResponse>("/api/reports");
+  const [companies, setCompanies] = React.useState<Company[]>(warmed?.companies ?? []);
+  const [loading, setLoading] = React.useState(!warmed);
   const [error, setError] = React.useState<string | null>(null);
   const [query, setQuery] = React.useState("");
   const [selectedCompany, setSelectedCompany] = React.useState<string | null>(
-    null,
+    warmed?.companies?.[0]?.name ?? null,
   );
   const [pickerOpen, setPickerOpen] = React.useState(false);
   const [activeType, setActiveType] = React.useState<string | null>(null);
@@ -95,7 +97,7 @@ export function ReportsExplorer() {
   const [viewerFullscreen, setViewerFullscreen] = React.useState(false);
 
   const load = React.useCallback(async () => {
-    setLoading(true);
+    if (!peekWarmupJson("/api/reports")) setLoading(true);
     setError(null);
     try {
       const res = await fetch("/api/reports", { cache: "no-store" });

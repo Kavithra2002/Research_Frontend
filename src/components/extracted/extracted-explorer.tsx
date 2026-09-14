@@ -24,6 +24,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+import { extractedFirstDataUrl, peekWarmupJson } from "@/lib/warmup-data";
 
 import {
   ExtractedTablesView,
@@ -153,30 +154,42 @@ function preferredQuarter(available: string[]): string | null {
 }
 
 export function ExtractedExplorer() {
+  const warmedList = peekWarmupJson<ListResponse>("/api/extracted");
+  const warmedDataUrl = extractedFirstDataUrl(warmedList);
+  const warmedData = warmedDataUrl
+    ? peekWarmupJson<DataResponse>(warmedDataUrl)
+    : undefined;
   const [dataSource, setDataSource] = React.useState<
     "mongodb" | "filesystem" | null
-  >(null);
-  const [companies, setCompanies] = React.useState<Company[]>([]);
-  const [loading, setLoading] = React.useState(true);
+  >(warmedList?.source ?? null);
+  const [companies, setCompanies] = React.useState<Company[]>(
+    warmedList?.companies ?? [],
+  );
+  const [loading, setLoading] = React.useState(!warmedList);
   const [error, setError] = React.useState<string | null>(null);
   const [query, setQuery] = React.useState("");
   const [selectedCompany, setSelectedCompany] = React.useState<string | null>(
-    null,
+    warmedList?.companies?.[0]?.name ?? null,
   );
-  const [selectedYear, setSelectedYear] = React.useState<number | null>(null);
+  const [selectedYear, setSelectedYear] = React.useState<number | null>(() => {
+    const company = warmedList?.companies?.[0];
+    return company ? preferredYear(company) : null;
+  });
   const [selectedQuarter, setSelectedQuarter] = React.useState<string | null>(
     null,
   );
   const [pickerOpen, setPickerOpen] = React.useState(false);
 
-  const [statements, setStatements] = React.useState<ExtractedStatement[]>([]);
+  const [statements, setStatements] = React.useState<ExtractedStatement[]>(() =>
+    warmedData ? statementsFromResults(warmedData.results ?? null) : [],
+  );
   const [dataLoading, setDataLoading] = React.useState(false);
   const [dataError, setDataError] = React.useState<string | null>(null);
   const [period, setPeriod] = React.useState<Period>("Annual");
   const [viewMode, setViewMode] = React.useState<ExplorerViewMode>("detail");
 
   const load = React.useCallback(async () => {
-    setLoading(true);
+    if (!peekWarmupJson("/api/extracted")) setLoading(true);
     setError(null);
     try {
       const res = await fetch("/api/extracted", { cache: "no-store" });
@@ -318,9 +331,6 @@ export function ExtractedExplorer() {
       setStatements([]);
       return;
     }
-    let cancelled = false;
-    setDataLoading(true);
-    setDataError(null);
     const params = new URLSearchParams({
       company: selectedCompany,
       period,
@@ -332,6 +342,15 @@ export function ExtractedExplorer() {
       params.set("quarter", selectedQuarter);
     }
     const url = `/api/extracted/data?${params.toString()}`;
+    const cached = peekWarmupJson<DataResponse>(url);
+    if (cached) {
+      setStatements(statementsFromResults(cached.results ?? null));
+      setDataLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setDataLoading(true);
+    setDataError(null);
     fetch(url, { cache: "no-store" })
       .then(async (res) => {
         const json = (await res.json()) as DataResponse;

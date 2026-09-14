@@ -478,6 +478,7 @@ export function DemoRunnerPanel() {
           mode: "db-annual",
           years: annualYears,
           companySlug: annualSlug,
+          force: true,
         });
       } else if (mode === "db-quarterly") {
         if (!quarterToRun.length) return;

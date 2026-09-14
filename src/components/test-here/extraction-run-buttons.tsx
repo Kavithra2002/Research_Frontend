@@ -74,7 +74,7 @@ const BUTTONS: {
     mode: "db-annual",
     label: "Run DB Annual",
     description:
-      "COMB/DB annual extract: PDF statement values + note tables (same pipeline as Commercial Bank).",
+      "Income statement, OCI, financial position, cash flows, and their notes — using each company’s own line items.",
     variant: "outline",
     needsAnnual: true,
     needsSelection: true,

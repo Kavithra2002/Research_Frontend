@@ -45,6 +45,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
+import { peekWarmupJson } from "@/lib/warmup-data";
 import {
   clearReportSelections,
   listReportSelections,
@@ -163,8 +164,11 @@ export function NewlyUpdatedPanel() {
     getUpdateServerSnapshot,
   );
 
-  const [reports, setReports] = React.useState<UploadedReport[]>([]);
-  const [listLoading, setListLoading] = React.useState(true);
+  const warmedReports = peekWarmupJson<ApiListResponse>("/api/system/newly-uploaded");
+  const [reports, setReports] = React.useState<UploadedReport[]>(
+    warmedReports?.reports ?? [],
+  );
+  const [listLoading, setListLoading] = React.useState(!warmedReports);
   const [listError, setListError] = React.useState<string | null>(null);
   const [updateConfirmOpen, setUpdateConfirmOpen] = React.useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = React.useState(false);
@@ -230,7 +234,7 @@ export function NewlyUpdatedPanel() {
   }, []);
 
   const loadList = React.useCallback(async () => {
-    setListLoading(true);
+    if (!peekWarmupJson("/api/system/newly-uploaded")) setListLoading(true);
     setListError(null);
     try {
       const res = await fetch("/api/system/newly-uploaded", {

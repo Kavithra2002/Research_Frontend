@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { sortStatementKeys } from "@/lib/statement-types";
+import { extractedFirstDataUrl, peekWarmupJson } from "@/lib/warmup-data";
 import {
   ExtractedStatement,
   statementsFromResults,
@@ -130,18 +131,30 @@ function yearsForPeriod(
 }
 
 export function ComparisonExplorer() {
+  const warmedList = peekWarmupJson<ListResponse>("/api/extracted");
+  const warmedDataUrl = extractedFirstDataUrl(warmedList);
+  const warmedData = warmedDataUrl
+    ? peekWarmupJson<DataResponse>(warmedDataUrl)
+    : undefined;
   const [dataSource, setDataSource] = React.useState<
     "mongodb" | "filesystem" | null
-  >(null);
-  const [companies, setCompanies] = React.useState<Company[]>([]);
-  const [loading, setLoading] = React.useState(true);
+  >(warmedList?.source ?? null);
+  const [companies, setCompanies] = React.useState<Company[]>(
+    warmedList?.companies ?? [],
+  );
+  const [loading, setLoading] = React.useState(!warmedList);
   const [error, setError] = React.useState<string | null>(null);
   const [selectedCompany, setSelectedCompany] = React.useState<string | null>(
-    null,
+    warmedList?.companies?.[0]?.name ?? null,
   );
-  const [selectedYear, setSelectedYear] = React.useState<number | null>(null);
+  const [selectedYear, setSelectedYear] = React.useState<number | null>(() => {
+    const company = warmedList?.companies?.[0];
+    return company ? preferredYear(company) : null;
+  });
 
-  const [statements, setStatements] = React.useState<ExtractedStatement[]>([]);
+  const [statements, setStatements] = React.useState<ExtractedStatement[]>(() =>
+    warmedData ? statementsFromResults(warmedData.results ?? null) : [],
+  );
   const [capturesByKey, setCapturesByKey] = React.useState<
     Record<string, CaptureImage[]>
   >({});
@@ -152,7 +165,7 @@ export function ComparisonExplorer() {
   const [refreshToken, setRefreshToken] = React.useState(0);
 
   const load = React.useCallback(async () => {
-    setLoading(true);
+    if (!peekWarmupJson("/api/extracted")) setLoading(true);
     setError(null);
     try {
       const res = await fetch("/api/extracted", { cache: "no-store" });
@@ -324,10 +337,6 @@ export function ComparisonExplorer() {
       return;
     }
 
-    let cancelled = false;
-    setDataLoading(true);
-    setDataError(null);
-
     const dataParams = new URLSearchParams({
       company: selectedCompany,
       period,
@@ -344,21 +353,36 @@ export function ComparisonExplorer() {
       captureParams.set("year", String(selectedYear));
     }
 
+    const dataUrl = `/api/extracted/data?${dataParams.toString()}`;
+    const captureUrl = `/api/extracted/captures?${captureParams.toString()}`;
+    const cachedData = peekWarmupJson<DataResponse>(dataUrl);
+    const cachedCaptures = peekWarmupJson<CapturesResponse>(captureUrl);
+    if (cachedData) {
+      setStatements(statementsFromResults(cachedData.results ?? null));
+      if (cachedCaptures) {
+        const map: Record<string, CaptureImage[]> = {};
+        for (const stmt of cachedCaptures.statements ?? []) {
+          map[stmt.key] = stmt.images ?? [];
+        }
+        setCapturesByKey(map);
+      }
+      setDataLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setDataLoading(true);
+    setDataError(null);
+
     Promise.all([
-      fetch(
-        `/api/extracted/data?${dataParams.toString()}`,
-        { cache: "no-store" },
-      ).then(async (res) => {
+      fetch(dataUrl, { cache: "no-store" }).then(async (res) => {
         const json = (await res.json()) as DataResponse;
         if (!res.ok) {
           throw new Error(json.error ?? `Request failed (${res.status})`);
         }
         return json;
       }),
-      fetch(
-        `/api/extracted/captures?${captureParams.toString()}`,
-        { cache: "no-store" },
-      ).then(async (res) => {
+      fetch(captureUrl, { cache: "no-store" }).then(async (res) => {
         const json = (await res.json()) as CapturesResponse;
         if (!res.ok) {
           throw new Error(json.error ?? `Request failed (${res.status})`);

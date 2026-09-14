@@ -10,6 +10,12 @@ function backendApiBase(): string {
 
 const nextConfig: NextConfig = {
   reactCompiler: true,
+  // Keep compiled pages in memory during `next dev` so sidebar navigation
+  // does not re-compile after the startup warmup (default buffer is only 5).
+  onDemandEntries: {
+    maxInactiveAge: 60 * 60 * 1000,
+    pagesBufferLength: 50,
+  },
   experimental: {
     // Windows: Turbopack's persistent `.next/dev` cache drops nested App
     // Router API routes after stop/restart, so `/api/db/preview` serves the

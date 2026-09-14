@@ -34,6 +34,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { peekWarmupJson } from "@/lib/warmup-data";
 import {
   loadWatchlists,
   makeWatchlistId,
@@ -838,8 +839,9 @@ function StatCard({
 // ---------------------------------------------------------------------------
 
 export function AnalyticsExplorer() {
-  const [data, setData] = React.useState<LivePayload | null>(null);
-  const [loading, setLoading] = React.useState(true);
+  const warmed = peekWarmupJson<LivePayload>("/api/analytics/live");
+  const [data, setData] = React.useState<LivePayload | null>(warmed ?? null);
+  const [loading, setLoading] = React.useState(!warmed);
   const [refreshing, setRefreshing] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [updatedAt, setUpdatedAt] = React.useState<Date | null>(null);
@@ -872,8 +874,8 @@ export function AnalyticsExplorer() {
   }));
 
   const load = React.useCallback(async (initial = false) => {
-    if (initial) setLoading(true);
-    else setRefreshing(true);
+    if (initial && !peekWarmupJson("/api/analytics/live")) setLoading(true);
+    else if (!initial) setRefreshing(true);
     try {
       const res = await fetch("/api/analytics/live", { cache: "no-store" });
       const json = (await res.json()) as LivePayload;

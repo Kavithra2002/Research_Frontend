@@ -52,6 +52,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
+import { peekWarmupJson } from "@/lib/warmup-data";
 
 // ---------------------------------------------------------------------------
 // API types — match the actual responses returned by the CSE endpoints.
@@ -220,6 +221,55 @@ const EMPTY_SNAPSHOT: Snapshot = {
   circular: [],
   directive: [],
 };
+
+function snapshotFromWarmup(): Snapshot | null {
+  const marketStatus = peekWarmupJson<MarketStatus>("/api/cse/marketStatus");
+  const approved = peekWarmupJson<{ approvedAnnouncements?: AnnouncementRow[] }>(
+    "/api/cse/approvedAnnouncement",
+  );
+  if (marketStatus == null && approved == null) return null;
+  return {
+    marketStatus: marketStatus ?? null,
+    marketSummary: peekWarmupJson<MarketSummary>("/api/cse/marketSummery") ?? null,
+    aspi: peekWarmupJson<IndexData>("/api/cse/aspiData") ?? null,
+    snp: peekWarmupJson<IndexData>("/api/cse/snpData") ?? null,
+    topGainers: peekWarmupJson<MoverRow[]>("/api/cse/topGainers") ?? [],
+    topLosers: peekWarmupJson<MoverRow[]>("/api/cse/topLooses") ?? [],
+    mostActive: peekWarmupJson<ActiveTradeRow[]>("/api/cse/mostActiveTrades") ?? [],
+    sectors: peekWarmupJson<SectorRow[]>("/api/cse/allSectors") ?? [],
+    todayPrices: peekWarmupJson<TodayPriceRow[]>("/api/cse/todaySharePrice") ?? [],
+    dailyHistory: [],
+    approved: approved?.approvedAnnouncements ?? [],
+    newListings:
+      peekWarmupJson<{ newListingRelatedAnnouncements?: AnnouncementRow[] }>(
+        "/api/cse/getNewListingsRelatedNoticesAnnouncements",
+      )?.newListingRelatedAnnouncements ?? [],
+    buyIn:
+      peekWarmupJson<{ buyInBoardAnnouncements?: AnnouncementRow[] }>(
+        "/api/cse/getBuyInBoardAnnouncements",
+      )?.buyInBoardAnnouncements ?? [],
+    nonCompliance:
+      peekWarmupJson<{ nonComplianceAnnouncements?: AnnouncementRow[] }>(
+        "/api/cse/getNonComplianceAnnouncements",
+      )?.nonComplianceAnnouncements ?? [],
+    covid:
+      peekWarmupJson<{ covidAnnouncements?: AnnouncementRow[] }>(
+        "/api/cse/getCOVIDAnnouncements",
+      )?.covidAnnouncements ?? [],
+    financial:
+      peekWarmupJson<{ reqFinancialAnnouncemnets?: DocumentRow[] }>(
+        "/api/cse/getFinancialAnnouncement",
+      )?.reqFinancialAnnouncemnets ?? [],
+    circular:
+      peekWarmupJson<{ reqCircularAnnouncement?: DocumentRow[] }>(
+        "/api/cse/circularAnnouncement",
+      )?.reqCircularAnnouncement ?? [],
+    directive:
+      peekWarmupJson<{ reqDirectiveAnnouncement?: DocumentRow[] }>(
+        "/api/cse/directiveAnnouncement",
+      )?.reqDirectiveAnnouncement ?? [],
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1100,8 +1150,9 @@ export function AnnouncementExplorer() {
   const [highlightedAnnId, setHighlightedAnnId] = React.useState<string | null>(
     null,
   );
-  const [data, setData] = React.useState<Snapshot>(EMPTY_SNAPSHOT);
-  const [loading, setLoading] = React.useState(true);
+  const warmed = snapshotFromWarmup();
+  const [data, setData] = React.useState<Snapshot>(warmed ?? EMPTY_SNAPSHOT);
+  const [loading, setLoading] = React.useState(!warmed);
   const [refreshing, setRefreshing] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = React.useState<Date | null>(null);
@@ -1112,8 +1163,8 @@ export function AnnouncementExplorer() {
   const [priceQuery, setPriceQuery] = React.useState("");
 
   const load = React.useCallback(async (mode: "initial" | "refresh") => {
-    if (mode === "initial") setLoading(true);
-    else setRefreshing(true);
+    if (mode === "initial" && !snapshotFromWarmup()) setLoading(true);
+    else if (mode === "refresh") setRefreshing(true);
     setError(null);
 
     try {

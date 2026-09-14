@@ -28,6 +28,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { fetchApiJson } from "@/lib/fetch-api-json";
 import { cn } from "@/lib/utils";
+import { peekWarmupJson } from "@/lib/warmup-data";
 import {
   type DbAmountDisplay,
   type DbGridRow,
@@ -99,9 +100,17 @@ const STATEMENT_SECTION_MATCH: Record<
 > = {
   income: (l) => {
     const u = l.toUpperCase();
-    return u.includes("INCOME STATEMENT") || u === "OCI";
+    return (
+      u.includes("INCOME STATEMENT") ||
+      u.includes("PROFIT OR LOSS") ||
+      u === "OCI" ||
+      u.includes("COMPREHENSIVE INCOME")
+    );
   },
-  balance: (l) => l.toUpperCase().includes("BALANCE SHEET"),
+  balance: (l) => {
+    const u = l.toUpperCase();
+    return u.includes("BALANCE SHEET") || u.includes("FINANCIAL POSITION");
+  },
   cfs: (l) =>
     l.toUpperCase().includes("CASH FLOW") ||
     l.toUpperCase().includes("CASHFLOWS"),
@@ -410,9 +419,18 @@ export function DbTestView({
     React.useState<DbAmountDisplay>("raw");
   const [noteEntity, setNoteEntity] = React.useState<NoteEntityPanel>("group");
 
+  const previewUrl = company
+    ? `/api/db/preview?${new URLSearchParams({ view: "notes", company })}`
+    : null;
+  const warmedPreview =
+    company && period === "annual" && previewUrl
+      ? peekWarmupJson<DbPreview>(previewUrl)
+      : undefined;
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const [preview, setPreview] = React.useState<DbPreview | null>(null);
+  const [preview, setPreview] = React.useState<DbPreview | null>(
+    warmedPreview ?? null,
+  );
   const [annualFallbackNote, setAnnualFallbackNote] = React.useState<
     string | null
   >(null);
@@ -450,12 +468,6 @@ export function DbTestView({
     if (previewRef.current && financialCacheKeyRef.current === cacheKey) {
       return;
     }
-    if (mountedRef.current) {
-      setLoading(true);
-      setError(null);
-      setAnnualFallbackNote(null);
-      // Keep previous preview so filters stay mounted; table shows overlay.
-    }
 
     try {
       // Annual: Notes view for every company (stable description rows +
@@ -465,7 +477,13 @@ export function DbTestView({
           view: "notes",
           company,
         });
-        const json = await fetchApiJson<DbPreview>(`/api/db/preview?${qs}`);
+        const previewPath = `/api/db/preview?${qs}`;
+        if (mountedRef.current && !peekWarmupJson(previewPath)) {
+          setLoading(true);
+          setError(null);
+          setAnnualFallbackNote(null);
+        }
+        const json = await fetchApiJson<DbPreview>(previewPath);
         if (!mountedRef.current) return;
         setPreview(json);
         financialCacheKeyRef.current = cacheKey;
@@ -474,6 +492,11 @@ export function DbTestView({
 
       // Quarterly / Q1–Q4 / 6M / 9M / TTM
       const qs = new URLSearchParams({ view: "quarterly", company });
+      if (mountedRef.current) {
+        setLoading(true);
+        setError(null);
+        setAnnualFallbackNote(null);
+      }
       const json = await fetchApiJson<DbPreview>(`/api/db/preview?${qs}`);
       if (!mountedRef.current) return;
       setPreview(json);

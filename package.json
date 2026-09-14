@@ -3,9 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "concurrently -n next,backend,chrome -c blue,magenta,green \"next dev\" \"cross-env WATCH=1 node scripts/check-backend.mjs\" \"wait-on -d 500 http://127.0.0.1:3000 && start chrome http://localhost:3000\"",
-    "dev:no-browser": "concurrently -n next,backend -c blue,magenta \"next dev\" \"cross-env WATCH=1 node scripts/check-backend.mjs\"",
+    "dev": "concurrently -n next,backend,chrome -c blue,magenta,green \"next dev\" \"cross-env WATCH=1 node scripts/check-backend.mjs\" \"node scripts/warmup-pages.mjs && start chrome http://localhost:3000\"",
+    "dev:no-browser": "concurrently -n next,backend,warmup -c blue,magenta,cyan \"next dev\" \"cross-env WATCH=1 node scripts/check-backend.mjs\" \"node scripts/warmup-pages.mjs\"",
     "check:backend": "node scripts/check-backend.mjs",
+    "warmup": "node scripts/warmup-pages.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint"

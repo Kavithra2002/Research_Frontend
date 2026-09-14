@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { isCombPilotAvailable } from "@/lib/newspaper-db";
+import { peekWarmupJson } from "@/lib/warmup-data";
 
 type ExtractedYearNode = {
   year: number;
@@ -37,14 +38,30 @@ type NewspaperDbExplorerProps = {
 };
 
 export function NewspaperDbExplorer({ className }: NewspaperDbExplorerProps) {
-  const [companies, setCompanies] = React.useState<CompanyOption[]>([]);
+  const warmedExtracted = peekWarmupJson<ListResponse>("/api/extracted");
+  const warmedCse = peekWarmupJson<{ companies?: { name: string; symbol: string }[] }>(
+    "/api/companies",
+  );
+  const warmedList = warmedExtracted?.companies ?? [];
+  const warmedOptions = warmedList.length
+    ? attachTickersToCompanies(
+        warmedList.map((c) => ({
+          name: c.name,
+          displayName: c.displayName,
+          statements: [],
+          totalReports: c.years?.length ?? 0,
+        })),
+        warmedCse?.companies ?? [],
+      )
+    : [];
+  const [companies, setCompanies] = React.useState<CompanyOption[]>(warmedOptions);
   const [rawCompanies, setRawCompanies] = React.useState<ExtractedCompany[]>(
-    [],
+    warmedList,
   );
   const [selectedCompany, setSelectedCompany] = React.useState<string | null>(
-    null,
+    warmedList[0]?.name ?? null,
   );
-  const [loadingCompanies, setLoadingCompanies] = React.useState(true);
+  const [loadingCompanies, setLoadingCompanies] = React.useState(!warmedExtracted);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [downloading, setDownloading] = React.useState(false);
   const [downloadError, setDownloadError] = React.useState<string | null>(null);
@@ -60,7 +77,9 @@ export function NewspaperDbExplorer({ className }: NewspaperDbExplorerProps) {
   }, []);
 
   const loadCompanies = React.useCallback(async () => {
-    if (mountedRef.current) setLoadingCompanies(true);
+    if (mountedRef.current && !peekWarmupJson("/api/extracted")) {
+      setLoadingCompanies(true);
+    }
     if (mountedRef.current) setLoadError(null);
     try {
       const [extractedRes, cseRes] = await Promise.all([
@@ -185,8 +204,8 @@ export function NewspaperDbExplorer({ className }: NewspaperDbExplorerProps) {
               <div className="min-w-0">
                 <p className="text-sm font-semibold">Financial database</p>
                 <p className="text-xs text-muted-foreground">
-                  COMB table structure for every company · same description
-                  rows; note tables fill after extraction
+                  Each company keeps its own statement rows · notes fill after
+                  extraction
                 </p>
               </div>
             </div>

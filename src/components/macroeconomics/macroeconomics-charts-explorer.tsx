@@ -20,6 +20,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
+import { peekWarmupJson } from "@/lib/warmup-data";
 
 type MacChartFile = {
   name: string;
@@ -80,9 +81,10 @@ function formatRunResult(saved: number, failed: number): string {
 }
 
 export function MacroeconomicsChartsExplorer() {
-  const [years, setYears] = React.useState<MacChartYear[]>([]);
-  const [totalReports, setTotalReports] = React.useState(0);
-  const [loading, setLoading] = React.useState(true);
+  const warmed = peekWarmupJson<ApiResponse>("/api/macroeconomics/charts/list");
+  const [years, setYears] = React.useState<MacChartYear[]>(warmed?.years ?? []);
+  const [totalReports, setTotalReports] = React.useState(warmed?.totalReports ?? 0);
+  const [loading, setLoading] = React.useState(!warmed);
   const [error, setError] = React.useState<string | null>(null);
   const [selectedYear, setSelectedYear] = React.useState<string | null>(null);
   const [selectedFile, setSelectedFile] = React.useState<string | null>(null);
@@ -102,7 +104,7 @@ export function MacroeconomicsChartsExplorer() {
   const abortRef = React.useRef<AbortController | null>(null);
 
   const load = React.useCallback(async () => {
-    setLoading(true);
+    if (!peekWarmupJson("/api/macroeconomics/charts/list")) setLoading(true);
     setError(null);
     try {
       const res = await fetch("/api/macroeconomics/charts/list", { cache: "no-store" });

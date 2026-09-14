@@ -11,8 +11,8 @@ export function DbPageClient() {
         <div className="min-w-0">
           <h1 className="font-heading text-lg font-semibold">DB</h1>
           <p className="text-sm text-muted-foreground">
-            Preview and download historical financial statements in the COMB FS
-            Excel format. To populate or refresh DB values, use{" "}
+            Preview and download historical financial statements. Each company
+            keeps its own line items. To populate or refresh DB values, use{" "}
             <span className="font-medium">Development → Run DB Annual</span>,{" "}
             <span className="font-medium">Run DB Quarter</span>, or{" "}
             <span className="font-medium">Run DB selected all</span> after

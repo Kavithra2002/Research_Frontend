@@ -38,6 +38,7 @@ import {
   TabsTrigger,
 } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
+import { peekWarmupJson } from "@/lib/warmup-data";
 
 type NewsItem = {
   id: string;
@@ -264,15 +265,16 @@ function FeedCard({ item }: { item: NewsItem }) {
 }
 
 export function NewspaperExplorer() {
-  const [data, setData] = React.useState<NewspaperResponse | null>(null);
-  const [loading, setLoading] = React.useState(true);
+  const warmed = peekWarmupJson<NewspaperResponse>("/api/newspaper");
+  const [data, setData] = React.useState<NewspaperResponse | null>(warmed ?? null);
+  const [loading, setLoading] = React.useState(!warmed);
   const [refreshing, setRefreshing] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [tab, setTab] = React.useState("all");
   const [selectedDate, setSelectedDate] = React.useState<Date | undefined>();
 
   const load = React.useCallback(async () => {
-    setLoading(true);
+    if (!peekWarmupJson("/api/newspaper")) setLoading(true);
     setError(null);
     try {
       const res = await fetch("/api/newspaper", { cache: "no-store" });

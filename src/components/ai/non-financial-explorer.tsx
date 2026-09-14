@@ -55,6 +55,7 @@ import {
   subscribe as subscribeLiveExtract,
 } from "@/components/system/live-extraction-store";
 import { cn } from "@/lib/utils";
+import { peekWarmupJson } from "@/lib/warmup-data";
 
 type CseCompany = { name: string; symbol: string; displayName: string };
 
@@ -175,7 +176,13 @@ export function NonFinancialExplorer() {
     () => getLiveExtractServerSnapshot().extract,
   );
 
-  const [cseCompanies, setCseCompanies] = React.useState<CseCompany[]>([]);
+  const warmedLocal = peekWarmupJson<{ companies?: DemoCompany[] }>("/api/demo/reports");
+  const warmedCse = peekWarmupJson<{ companies?: CseCompany[] }>(
+    "/api/system/live-extraction/companies",
+  );
+  const [cseCompanies, setCseCompanies] = React.useState<CseCompany[]>(
+    warmedCse?.companies ?? [],
+  );
   const [cseQuery, setCseQuery] = React.useState("");
   const [activeCseCompany, setActiveCseCompany] = React.useState<string | null>(null);
   const [cseCatalog, setCseCatalog] = React.useState<CseYearBlock[]>([]);
@@ -186,8 +193,10 @@ export function NonFinancialExplorer() {
   >(new Map());
   const [downloading, setDownloading] = React.useState(false);
 
-  const [localCompanies, setLocalCompanies] = React.useState<DemoCompany[]>([]);
-  const [loadingLocal, setLoadingLocal] = React.useState(true);
+  const [localCompanies, setLocalCompanies] = React.useState<DemoCompany[]>(
+    warmedLocal?.companies ?? [],
+  );
+  const [loadingLocal, setLoadingLocal] = React.useState(!warmedLocal);
   const [localError, setLocalError] = React.useState<string | null>(null);
 
   const [selected, setSelected] = React.useState<Map<string, SelectedItem>>(
@@ -198,7 +207,7 @@ export function NonFinancialExplorer() {
   const logScrollRef = React.useRef<HTMLDivElement | null>(null);
 
   const loadLocal = React.useCallback(async () => {
-    setLoadingLocal(true);
+    if (!peekWarmupJson("/api/demo/reports")) setLoadingLocal(true);
     setLocalError(null);
     try {
       const res = await fetch("/api/demo/reports", { cache: "no-store" });

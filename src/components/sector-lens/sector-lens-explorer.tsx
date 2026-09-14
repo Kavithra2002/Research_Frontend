@@ -6,6 +6,7 @@ import { CalendarIcon, Loader2, RefreshCw, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Calendar } from "@/components/ui/calendar";
 import { CompactYearsDropdown, isSectorLensYearDropdownInteraction } from "@/components/sector-lens/compact-years-dropdown";
+import { peekWarmupJson } from "@/lib/warmup-data";
 import {
   Popover,
   PopoverContent,
@@ -92,11 +93,15 @@ function toISODate(d: Date): string {
 }
 
 export function SectorLensExplorer() {
-  const [rows, setRows] = React.useState<SectorLensRow[]>([]);
-  const [date, setDate] = React.useState<Date>(() => new Date());
-  const [pickerDate, setPickerDate] = React.useState<Date>(() => new Date());
+  const initialAsOf = React.useMemo(() => new Date(), []);
+  const warmedRows = peekWarmupJson<SectorLensResponse>(
+    `/api/sector-lens?asOf=${encodeURIComponent(toISODate(initialAsOf))}`,
+  );
+  const [rows, setRows] = React.useState<SectorLensRow[]>(warmedRows?.rows ?? []);
+  const [date, setDate] = React.useState<Date>(() => initialAsOf);
+  const [pickerDate, setPickerDate] = React.useState<Date>(() => initialAsOf);
   const [calendarOpen, setCalendarOpen] = React.useState(false);
-  const [loading, setLoading] = React.useState(true);
+  const [loading, setLoading] = React.useState(!warmedRows);
   const [error, setError] = React.useState<string | null>(null);
   const [groupBy, setGroupBy] = React.useState<GroupBy>("Sectors");
   const [filter, setFilter] = React.useState("");
@@ -112,7 +117,8 @@ export function SectorLensExplorer() {
   const isLive = activeTab === "Live";
 
   const load = React.useCallback(async (asOf: Date) => {
-    setLoading(true);
+    const url = `/api/sector-lens?asOf=${encodeURIComponent(toISODate(asOf))}`;
+    if (!peekWarmupJson(url)) setLoading(true);
     setError(null);
     try {
       const res = await fetch(

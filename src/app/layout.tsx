@@ -11,6 +11,8 @@ import { LiveExtractFloatingStatus } from "@/components/system/live-extract-floa
 import { NonFinancialFloatingStatus } from "@/components/ai/non-financial-floating-status";
 import { RunningAgentsDock } from "@/components/ai/running-agents-dock";
 import { NotificationFeed } from "@/components/notifications/notification-feed";
+import { WarmupDataBridge } from "@/components/warmup-data-bridge";
+import { readWarmupSnapshotFile } from "@/lib/warmup-snapshot.server";
 import { cn } from "@/lib/utils";
 
 const inter = Inter({subsets:['latin'],variable:'--font-sans'});
@@ -30,11 +32,14 @@ export const metadata: Metadata = {
   description: "Internal admin dashboard built with Next.js and shadcn/ui",
 };
 
+export const dynamic = "force-dynamic";
+
 export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const warmupSnapshot = readWarmupSnapshotFile();
   return (
     <html
       lang="en"
@@ -52,15 +57,17 @@ export default function RootLayout({
             enableSystem
             disableTransitionOnChange
           >
-            <AuthProvider>
-              {children}
-              <ScanFloatingStatus />
-              <DemoRunFloatingStatus />
-              <LiveExtractFloatingStatus />
-              <NonFinancialFloatingStatus />
-              <RunningAgentsDock />
-              <NotificationFeed />
-            </AuthProvider>
+            <WarmupDataBridge snapshot={warmupSnapshot}>
+              <AuthProvider>
+                {children}
+                <ScanFloatingStatus />
+                <DemoRunFloatingStatus />
+                <LiveExtractFloatingStatus />
+                <NonFinancialFloatingStatus />
+                <RunningAgentsDock />
+                <NotificationFeed />
+              </AuthProvider>
+            </WarmupDataBridge>
           </ThemeProvider>
         </TooltipProvider>
       </body>

@@ -4,11 +4,22 @@
  * 404 page for nested `/api/...` routes; retry instead of throwing
  * `Unexpected token '<'`.
  */
+import { peekWarmupJson, WARMUP_SNAPSHOT_HEADER } from "@/lib/warmup-data";
+
 export async function fetchApiJson<T>(
   url: string,
   init?: RequestInit,
   attempts = 4,
 ): Promise<T> {
+  const method = (init?.method ?? "GET").toUpperCase();
+  const bypass =
+    init?.headers != null &&
+    new Headers(init.headers).get(WARMUP_SNAPSHOT_HEADER) === "1";
+  if (method === "GET" && !bypass) {
+    const cached = peekWarmupJson<T>(url);
+    if (cached !== undefined) return cached;
+  }
+
   let lastError: Error | null = null;
 
   for (let i = 0; i < attempts; i++) {
