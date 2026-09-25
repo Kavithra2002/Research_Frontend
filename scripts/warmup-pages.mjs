@@ -20,11 +20,6 @@ const API_TIMEOUT_MS = Number(process.env.PAGE_WARMUP_API_TIMEOUT_MS || 90_000);
 const READY_POLL_MS = 400;
 const SNAPSHOT_PATH = join(process.cwd(), ".next", "warmup-snapshot.json");
 
-function todayISO() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
 function extractedFirstDataUrl(list) {
   const company = list?.companies?.[0];
   if (!company) return null;
@@ -46,8 +41,6 @@ function firstLoadApiUrls() {
     "/api/newspaper",
     "/api/reports",
     "/api/analytics/live",
-    "/api/sector-lens/live",
-    `/api/sector-lens?asOf=${encodeURIComponent(todayISO())}`,
     "/api/macroeconomics/charts/list",
     "/api/system/newly-uploaded",
     "/api/demo/reports",
