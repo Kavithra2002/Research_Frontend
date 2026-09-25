@@ -21,7 +21,6 @@ import {
   SlidersHorizontal,
   Sparkles,
   TableProperties,
-  Telescope,
   Users,
 } from "lucide-react";
 
@@ -168,13 +167,6 @@ const mainNav: NavItem[] = [
     url: "/announcement",
     icon: Megaphone,
     iconColor: "yellow",
-    roles: ["Admin", "User"],
-  },
-  {
-    title: "Sector Lens",
-    url: "/sector-lens",
-    icon: Telescope,
-    iconColor: "indigo",
     roles: ["Admin", "User"],
   },
   {
