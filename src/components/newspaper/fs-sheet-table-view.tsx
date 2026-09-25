@@ -244,7 +244,7 @@ export function FsSheetTableView({
   let dataRowCounter = 0;
 
   const baseDescriptionWidth = columnKeys.length > 12 ? 288 : 272;
-  const baseDataColWidth = columnKeys.length > 12 ? 112 : 104;
+  const baseDataColWidth = columnKeys.length > 12 ? 184 : 176;
   const { width: descriptionWidth, onResizePointerDown, resetWidth } =
     useResizableDescriptionWidth(baseDescriptionWidth);
   const baseTableWidth =
