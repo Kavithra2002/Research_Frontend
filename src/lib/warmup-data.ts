@@ -10,7 +10,6 @@ export type WarmupSnapshot = Record<string, unknown>;
 const LIVE_PREFIXES = [
   "/api/cse/",
   "/api/analytics/live",
-  "/api/sector-lens/live",
 ];
 
 type GlobalWarmup = typeof globalThis & {
