@@ -146,7 +146,7 @@ export function NotesSheetTableView({
 
   const columnKeys = React.useMemo(() => years.map(String), [years]);
 
-  const YEAR_COL_COMPACT = 96;
+  const YEAR_COL_COMPACT = 176;
 
   React.useEffect(() => {
     const el = sectionRef.current;
@@ -453,7 +453,7 @@ export function NotesSheetTableView({
                 {columnKeys.map((label) => (
                   <th
                     key={label}
-                    className="bg-muted px-3 py-2 text-right font-semibold whitespace-nowrap text-muted-foreground"
+                    className="bg-muted px-4 py-2 text-right font-semibold whitespace-nowrap text-muted-foreground"
                   >
                     {label}
                   </th>
@@ -644,7 +644,7 @@ export function NotesSheetTableView({
                           <td
                             key={key}
                             className={cn(
-                              "border-b px-3 py-1.5 text-right font-mono text-[0.78rem] transition-colors",
+                              "border-b px-4 py-1.5 text-right font-mono text-[0.78rem] whitespace-nowrap transition-colors",
                               parentHovered
                                 ? "bg-sky-500/10 dark:bg-sky-400/10"
                                 : rowBackground(stripedEven),
@@ -726,7 +726,7 @@ export function NotesSheetTableView({
                               <td
                                 key={key}
                                 className={cn(
-                                  "border-b px-3 py-1.5 text-right font-mono text-[0.78rem] transition-colors",
+                                  "border-b px-4 py-1.5 text-right font-mono text-[0.78rem] whitespace-nowrap transition-colors",
                                   childHovered
                                     ? "bg-sky-500/10 dark:bg-sky-400/10"
                                     : isTotal
