@@ -12,6 +12,7 @@ import {
 
 import { FsSheetTableView } from "@/components/newspaper/fs-sheet-table-view";
 import { NotesSheetTableView } from "@/components/newspaper/notes-sheet-table-view";
+import { PrintedStatementPanel } from "@/components/newspaper/printed-statement-view";
 import { DateCompactSelect } from "@/components/newspaper/date-compact-select";
 import {
   noteTablesHaveBankEntity,
@@ -39,7 +40,7 @@ import {
 
 type DetailLevel = "summary" | "detailed";
 type DataCategory = "financial" | "non_financial";
-type StatementType = "income" | "balance" | "cfs" | "soce";
+type StatementType = "income" | "oci" | "balance" | "cfs" | "soce";
 type PeriodType =
   | "annual"
   | "quarterly"
@@ -89,10 +90,18 @@ const PERIOD_OPTIONS: { id: PeriodType; label: string }[] = [
 const STATEMENT_OPTIONS: { id: StatementType; label: string; short: string }[] =
   [
     { id: "income", label: "Income statement", short: "IS" },
+    { id: "oci", label: "Comprehensive income", short: "OCI" },
     { id: "balance", label: "Balance Sheet", short: "BS" },
     { id: "cfs", label: "CFS", short: "CFS" },
     { id: "soce", label: "SOCE", short: "SOCE" },
   ];
+
+const PRINTED_STATEMENT_KEY: Record<Exclude<StatementType, "soce">, string> = {
+  income: "income_statement",
+  oci: "oci",
+  balance: "sofp",
+  cfs: "cash_flows",
+};
 
 const STATEMENT_SECTION_MATCH: Record<
   Exclude<StatementType, "soce">,
@@ -106,6 +115,10 @@ const STATEMENT_SECTION_MATCH: Record<
       u === "OCI" ||
       u.includes("COMPREHENSIVE INCOME")
     );
+  },
+  oci: (l) => {
+    const u = l.toUpperCase();
+    return u === "OCI" || u.includes("COMPREHENSIVE INCOME");
   },
   balance: (l) => {
     const u = l.toUpperCase();
@@ -408,6 +421,8 @@ export function DbTestView({
   const [statement, setStatement] = React.useState<StatementType | null>(null);
   const [dataCategory, setDataCategory] =
     React.useState<DataCategory>("financial");
+  const [printedYears, setPrintedYears] = React.useState<number[]>([]);
+  const [printedEntities, setPrintedEntities] = React.useState<string[]>([]);
   const [fromYear, setFromYear] = React.useState<number | null>(null);
   const [toYear, setToYear] = React.useState<number | null>(null);
   const [fromMonth, setFromMonth] = React.useState<number | null>(null);
@@ -733,8 +748,13 @@ export function DbTestView({
       ? noteBankMeta
       : cachedBankMeta;
 
+  const companyEntityName =
+    printedEntities.find((name) => !/^group$/i.test(name)) ??
+    (entityToggleMeta.available ? entityToggleMeta.bankLabel : null);
+
   const showEntityToggle =
-    isAnnualNotesContext && entityToggleMeta.available;
+    isAnnualNotesContext &&
+    (entityToggleMeta.available || companyEntityName != null);
 
   const periodLabel = preview?.period_label ?? "";
   const unit = preview?.unit ?? "";
@@ -759,11 +779,21 @@ export function DbTestView({
     toDay != null;
 
   const availableYears = React.useMemo(() => {
-    const years = rawColumnKeys
-      .map((key) => Number(key.match(/^(\d{4})/)?.[1] ?? Number.NaN))
+    const years = [...rawColumnKeys.map((key) => key), ...printedYears.map(String)]
+      .map((key) => Number(String(key).match(/^(\d{4})/)?.[1] ?? Number.NaN))
       .filter((year) => Number.isFinite(year));
     return [...new Set(years)].sort((a, b) => a - b);
-  }, [rawColumnKeys]);
+  }, [printedYears, rawColumnKeys]);
+
+  const handlePrintedYears = React.useCallback((years: number[]) => {
+    setPrintedYears((prev) => (prev.join("|") === years.join("|") ? prev : years));
+  }, []);
+
+  const handlePrintedEntities = React.useCallback((entities: string[]) => {
+    setPrintedEntities((prev) =>
+      prev.join("|") === entities.join("|") ? prev : entities,
+    );
+  }, []);
 
   const fromDayOptions = dayOptions(fromYear, fromMonth);
   const toDayOptions = dayOptions(toYear, toMonth);
@@ -1140,8 +1170,8 @@ export function DbTestView({
                             opt.id === "soce"
                               ? "SOCE — under development"
                               : statement === opt.id
-                                ? `Clear ${opt.label} filter (show full Annual table)`
-                                : `${opt.label} — filter Annual table (click again to clear)`
+                                ? `Clear ${opt.label} (show full Annual table)`
+                                : `${opt.label} — printed statement with clickable notes`
                           }
                         >
                           {opt.label}
@@ -1170,7 +1200,7 @@ export function DbTestView({
                           onClick={() => setNoteEntity("bank")}
                           tabIndex={dataCategory === "financial" ? 0 : -1}
                         >
-                          {entityToggleMeta.bankLabel}
+                          {companyEntityName ?? entityToggleMeta.bankLabel}
                         </button>
                       </div>
                     </div>
@@ -1268,6 +1298,22 @@ export function DbTestView({
                 statement, Balance Sheet, or CFS for now.
               </p>
             </div>
+          ) : period === "annual" ? (
+            <PrintedStatementPanel
+              company={company}
+              statementKey={
+                statement
+                  ? PRINTED_STATEMENT_KEY[statement]
+                  : "income_statement"
+              }
+              refreshToken={refreshToken}
+              fromYear={fromYear}
+              toYear={toYear}
+              entity={noteEntity === "group" ? "group" : "company"}
+              onAvailableYears={handlePrintedYears}
+              onEntities={handlePrintedEntities}
+              enabled
+            />
           ) : (
             <div className="relative min-w-0">
               {isAnnualNotesView && tableRows.length > 0 && notesYears.length > 0 ? (

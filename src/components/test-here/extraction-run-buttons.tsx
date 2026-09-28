@@ -74,7 +74,7 @@ const BUTTONS: {
     mode: "db-annual",
     label: "Run DB Annual",
     description:
-      "Income statement, OCI, financial position, cash flows, and their notes — using each company’s own line items.",
+      "Extract the ticked annual reports: income statement, comprehensive income, financial position, cash flows, and their notes.",
     variant: "outline",
     needsAnnual: true,
     needsSelection: true,
