@@ -12,6 +12,13 @@ const LIVE_PREFIXES = [
   "/api/analytics/live",
 ];
 
+// Company search must always hit CSE. A startup snapshot is only the names
+// that had traded when the dev server booted, so it hides the rest.
+const ALWAYS_FRESH_PREFIXES = [
+  "/api/system/live-extraction/companies",
+  "/api/companies",
+];
+
 type GlobalWarmup = typeof globalThis & {
   __AMBEON_WARMUP_SNAPSHOT__?: WarmupSnapshot;
   __AMBEON_WARMUP_LIVE_ONCE__?: Set<string>;
@@ -54,6 +61,12 @@ function isLiveKey(key: string): boolean {
   return LIVE_PREFIXES.some((prefix) => key === prefix || key.startsWith(prefix));
 }
 
+function isAlwaysFresh(key: string): boolean {
+  return ALWAYS_FRESH_PREFIXES.some(
+    (prefix) => key === prefix || key.startsWith(prefix),
+  );
+}
+
 function headerBypass(init?: RequestInit): boolean {
   if (!init?.headers) return false;
   const headers = new Headers(init.headers);
@@ -91,7 +104,8 @@ export function installWarmupFetchPatch() {
     if (
       method === "GET" &&
       cached !== undefined &&
-      !headerBypass(init)
+      !headerBypass(init) &&
+      !isAlwaysFresh(key)
     ) {
       if (isLiveKey(key)) {
         const seen = g().__AMBEON_WARMUP_LIVE_ONCE__!;

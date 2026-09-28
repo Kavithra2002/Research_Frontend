@@ -177,12 +177,7 @@ export function NonFinancialExplorer() {
   );
 
   const warmedLocal = peekWarmupJson<{ companies?: DemoCompany[] }>("/api/demo/reports");
-  const warmedCse = peekWarmupJson<{ companies?: CseCompany[] }>(
-    "/api/system/live-extraction/companies",
-  );
-  const [cseCompanies, setCseCompanies] = React.useState<CseCompany[]>(
-    warmedCse?.companies ?? [],
-  );
+  const [cseCompanies, setCseCompanies] = React.useState<CseCompany[]>([]);
   const [cseQuery, setCseQuery] = React.useState("");
   const [activeCseCompany, setActiveCseCompany] = React.useState<string | null>(null);
   const [cseCatalog, setCseCatalog] = React.useState<CseYearBlock[]>([]);
