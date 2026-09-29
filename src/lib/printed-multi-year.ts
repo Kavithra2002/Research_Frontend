@@ -327,7 +327,7 @@ function mergeTableSeries(
 
   const shownEntities = entitiesForPanel(knownEntities, panel);
   const years = [...new Set(displayYears ?? series.map((item) => item.year))].sort(
-    (a, b) => b - a,
+    (a, b) => a - b,
   );
 
   const columns: { entity: string; year: number }[] = [];
@@ -434,7 +434,7 @@ export function mergePrintedStatements(
   return {
     table: mergedSeries.table,
     notes,
-    years: ranged.map((report) => report.year).sort((a, b) => b - a),
+    years: ranged.map((report) => report.year).sort((a, b) => a - b),
     entities,
     companyName: newest.company_name || newest.company_slug,
     unit: mergedSeries.table.unit || newest.unit || "",
@@ -458,7 +458,7 @@ function registerLineNotes(
     const lineKey = prefix ? `${prefix}/${key}` : key;
     const sources = [...fact.notesByYear.entries()]
       .filter(([year]) => extractedYears.has(year))
-      .sort((a, b) => b[0] - a[0])
+      .sort((a, b) => a[0] - b[0])
       .map(([year, ref]) => ({ year, ref }));
     if (sources.length === 0 || depth > 3) {
       row.note_ref = null;
@@ -467,7 +467,7 @@ function registerLineNotes(
 
     const grids: YearTable[] = [];
     const display = new Set<number>();
-    for (const source of [...sources].reverse()) {
+    for (const source of sources) {
       const table = reportsByYear.get(source.year)?.notes?.[source.ref];
       if (!table || !(table.rows?.length) || !isYearGrid(table)) continue;
       grids.push({ year: source.year, table });
@@ -480,7 +480,7 @@ function registerLineNotes(
     }
 
     if (grids.length === 0) {
-      const rawSource = sources.find((source) => {
+      const rawSource = [...sources].reverse().find((source) => {
         const table = reportsByYear.get(source.year)?.notes?.[source.ref];
         return (table?.rows?.length ?? 0) > 0;
       });
