@@ -27,6 +27,8 @@ export type PrintedTable = {
   header_rows?: string[][];
   rows?: PrintedRow[];
   note_column?: number | null;
+  note_columns?: number[];
+  source_notes?: { year: number; ref: string }[];
   year_breaks?: number[];
   ok?: boolean;
   note_ref?: string;
@@ -48,6 +50,10 @@ const AMOUNT_RE =
 
 function isAmount(value: string): boolean {
   return AMOUNT_RE.test(value.trim());
+}
+
+function isNoteToken(value: string): boolean {
+  return /^\d+(?:\.\d+)?$/.test(value.trim());
 }
 
 function headerSpans(row: string[]): { text: string; span: number }[] {
@@ -72,9 +78,11 @@ function headerSpans(row: string[]): { text: string; span: number }[] {
 
 function NoteButton({
   noteRef,
+  label,
   onOpen,
 }: {
   noteRef: string;
+  label: string;
   onOpen: (noteRef: string) => void;
 }) {
   return (
@@ -82,9 +90,9 @@ function NoteButton({
       type="button"
       onClick={() => onOpen(noteRef)}
       className="mx-auto inline-flex min-w-8 items-center justify-center rounded bg-amber-400/35 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-amber-950 hover:bg-amber-400/60 dark:text-amber-50"
-      title={`Open note ${noteRef}`}
+      title={`Open note ${label}`}
     >
-      {noteRef}
+      {label}
     </button>
   );
 }
@@ -98,11 +106,10 @@ function StatementGrid({
 }) {
   const headerRows = table.header_rows ?? [];
   const rows = table.rows ?? [];
-  const noteColumn = table.note_column ?? null;
-  const yearBreaks = new Set(table.year_breaks ?? []);
-  const notes = new Set(
-    rows.map((row) => row.note_ref).filter((ref): ref is string => Boolean(ref)),
+  const noteColumns = new Set(
+    table.note_columns ?? (table.note_column != null ? [table.note_column] : []),
   );
+  const yearBreaks = new Set(table.year_breaks ?? []);
   const colCount = Math.max(
     1,
     ...headerRows.map((row) => row.length),
@@ -127,7 +134,7 @@ function StatementGrid({
                   className={cn(
                     "border-b px-2 py-1.5 text-center text-[11px] font-semibold text-muted-foreground",
                     yearBreaks.has(start) && "border-l-2 border-l-foreground/35",
-                    start === noteColumn && "w-16 min-w-16",
+                    noteColumns.has(start) && cell.span === 1 && "w-16 min-w-16",
                     cellIndex === 0 &&
                       "sticky left-0 z-30 bg-muted text-left",
                   )}
@@ -158,16 +165,16 @@ function StatementGrid({
                 {Array.from({ length: colCount }, (_, cellIndex) => {
                   const value = cells[cellIndex] ?? "";
                   const noteHere =
-                    noteColumn === cellIndex &&
-                    value &&
-                    (notes.has(value) || row.note_ref === value);
+                    noteColumns.has(cellIndex) &&
+                    isNoteToken(value) &&
+                    Boolean(row.note_ref);
                   return (
                     <td
                       key={cellIndex}
                       className={cn(
                         "border-b px-2 py-1 align-middle whitespace-nowrap",
                         yearBreaks.has(cellIndex) && "border-l-2 border-l-foreground/35",
-                        cellIndex === noteColumn
+                        noteColumns.has(cellIndex)
                           ? "w-16 min-w-16 px-1 text-center"
                           : cellIndex === 0
                             ? "sticky left-0 z-10 min-w-56 max-w-md bg-inherit text-left"
@@ -182,7 +189,7 @@ function StatementGrid({
                       )}
                     >
                       {noteHere ? (
-                        <NoteButton noteRef={value} onOpen={onOpenNote} />
+                        <NoteButton noteRef={row.note_ref ?? value} label={value} onOpen={onOpenNote} />
                       ) : (
                         value
                       )}
@@ -326,6 +333,8 @@ export function PrintedStatementPanel({
 
   const unit = statement?.unit || merged?.unit || "";
   const note = openNote ? merged?.notes?.[openNote] : null;
+  const sourceNotes = note?.source_notes ?? [];
+  const uniqueNoteRefs = [...new Set(sourceNotes.map((item) => item.ref))];
   const yearLabel =
     merged && merged.years.length > 1
       ? merged.years.join(", ")
@@ -363,13 +372,17 @@ export function PrintedStatementPanel({
           <DialogHeader>
             <DialogTitle>
               {note?.title
-                ? `Note ${openNote} — ${note.title}`
-                : `Note ${openNote ?? ""}`}
+                ? uniqueNoteRefs.length === 1
+                  ? `Note ${uniqueNoteRefs[0]} — ${note.title}`
+                  : note.title
+                : "Note"}
             </DialogTitle>
             <DialogDescription>
-              {note?.pages?.length
-                ? `Extracted from PDF page ${note.pages.join(", ")}`
-                : "Extracted note table"}
+              {sourceNotes.length
+                ? sourceNotes.map((item) => `${item.year} note ${item.ref}`).join(" · ")
+                : note?.pages?.length
+                  ? `Extracted from PDF page ${note.pages.join(", ")}`
+                  : "Extracted note table"}
               {note?.unit ? ` · ${note.unit}` : ""}
             </DialogDescription>
           </DialogHeader>
@@ -378,7 +391,7 @@ export function PrintedStatementPanel({
               <StatementGrid table={note} onOpenNote={setOpenNote} />
             ) : (
               <p className="p-4 text-sm text-muted-foreground">
-                No note table was extracted for note {openNote}.
+                No note table was extracted for this line.
               </p>
             )}
           </div>
