@@ -28,6 +28,7 @@ export type PrintedTable = {
   rows?: PrintedRow[];
   note_column?: number | null;
   note_columns?: number[];
+  note_years?: number[];
   source_notes?: { year: number; ref: string }[];
   year_breaks?: number[];
   ok?: boolean;
@@ -106,9 +107,10 @@ function StatementGrid({
 }) {
   const headerRows = table.header_rows ?? [];
   const rows = table.rows ?? [];
-  const noteColumns = new Set(
-    table.note_columns ?? (table.note_column != null ? [table.note_column] : []),
-  );
+  const noteColumnList =
+    table.note_columns ?? (table.note_column != null ? [table.note_column] : []);
+  const noteColumns = new Set(noteColumnList);
+  const noteYears = table.note_years ?? [];
   const yearBreaks = new Set(table.year_breaks ?? []);
   const colCount = Math.max(
     1,
@@ -164,10 +166,17 @@ function StatementGrid({
               >
                 {Array.from({ length: colCount }, (_, cellIndex) => {
                   const value = cells[cellIndex] ?? "";
+                  const noteIndex = noteColumnList.indexOf(cellIndex);
+                  const columnYear = noteIndex >= 0 ? noteYears[noteIndex] : undefined;
+                  const openRef = row.note_ref
+                    ? row.note_ref.includes("|")
+                      ? row.note_ref
+                      : columnYear != null
+                        ? `${columnYear}|${row.note_ref}`
+                        : null
+                    : null;
                   const noteHere =
-                    noteColumns.has(cellIndex) &&
-                    isNoteToken(value) &&
-                    Boolean(row.note_ref);
+                    noteColumns.has(cellIndex) && isNoteToken(value) && Boolean(openRef);
                   return (
                     <td
                       key={cellIndex}
@@ -189,7 +198,7 @@ function StatementGrid({
                       )}
                     >
                       {noteHere ? (
-                        <NoteButton noteRef={row.note_ref ?? value} label={value} onOpen={onOpenNote} />
+                        <NoteButton noteRef={openRef ?? value} label={value} onOpen={onOpenNote} />
                       ) : (
                         value
                       )}
@@ -378,9 +387,11 @@ export function PrintedStatementPanel({
                 : "Note"}
             </DialogTitle>
             <DialogDescription>
-              {sourceNotes.length
-                ? sourceNotes.map((item) => `${item.year} note ${item.ref}`).join(" · ")
-                : note?.pages?.length
+              {sourceNotes.length === 1
+                ? `Annual report ${sourceNotes[0].year}`
+                : sourceNotes.length
+                  ? sourceNotes.map((item) => `${item.year} note ${item.ref}`).join(" · ")
+                  : note?.pages?.length
                   ? `Extracted from PDF page ${note.pages.join(", ")}`
                   : "Extracted note table"}
               {note?.unit ? ` · ${note.unit}` : ""}
