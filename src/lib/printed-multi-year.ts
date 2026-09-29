@@ -14,6 +14,8 @@ export type PrintedTable = {
   note_column?: number | null;
   /** Every column that holds a note number. One per year. */
   note_columns?: number[];
+  /** Year for each entry in note_columns, same order. */
+  note_years?: number[];
   /** Printed note number for this line in each extracted year. */
   source_notes?: { year: number; ref: string }[];
   /** Body/header column indexes where a new year starts. */
@@ -225,6 +227,16 @@ function isYearGrid(table: PrintedTable): boolean {
   });
 }
 
+function numericCells(table: PrintedTable): number {
+  let count = 0;
+  for (const row of table.rows ?? []) {
+    for (const cell of row.cells ?? []) {
+      if (/\d{1,3}(?:,\d{3})+|\(\d[\d,]*\)/.test(String(cell))) count += 1;
+    }
+  }
+  return count;
+}
+
 function inRange(year: number, fromYear: number | null, toYear: number | null): boolean {
   if (fromYear != null && year < fromYear) return false;
   if (toYear != null && year > toYear) return false;
@@ -377,6 +389,7 @@ function mergeTableSeries(
       rows: body,
       note_column: noteColumns[0] ?? null,
       note_columns: noteColumns,
+      note_years: columns.map((column) => column.year),
       year_breaks: yearBreaks,
       ok: body.some((row) => row.cells.some((cell, index) => index > 0 && cell)),
     },
@@ -465,55 +478,52 @@ function registerLineNotes(
       return;
     }
 
-    const grids: YearTable[] = [];
-    const display = new Set<number>();
+    const linkedYears: number[] = [];
     for (const source of sources) {
-      const table = reportsByYear.get(source.year)?.notes?.[source.ref];
-      if (!table || !(table.rows?.length) || !isYearGrid(table)) continue;
-      grids.push({ year: source.year, table });
-      display.add(source.year);
-      for (const slot of headerModel(table.header_rows ?? []).slots) {
-        if (slot.kind === "year" && slot.year != null && extractedYears.has(slot.year)) {
-          display.add(slot.year);
-        }
+      const raw = reportsByYear.get(source.year)?.notes?.[source.ref];
+      if (!raw || !(raw.rows?.length)) continue;
+      const storageKey = `${source.year}|${lineKey}`;
+      if (!isYearGrid(raw)) {
+        notes[storageKey] = {
+          ...raw,
+          title: fact.label || raw.title,
+          source_notes: [source],
+        };
+        linkedYears.push(source.year);
+        continue;
       }
+      const child = mergeTableSeries([{ year: source.year, table: raw }], panel, entities, [
+        source.year,
+      ]);
+      if (!child || numericCells(child.table) === 0) {
+        notes[storageKey] = {
+          ...raw,
+          title: fact.label || raw.title,
+          source_notes: [source],
+        };
+        linkedYears.push(source.year);
+        continue;
+      }
+      child.table.title = fact.label || child.table.title;
+      child.table.source_notes = [source];
+      notes[storageKey] = child.table;
+      registerLineNotes(
+        notes,
+        lineKey,
+        child,
+        reportsByYear,
+        new Set([source.year]),
+        entities,
+        panel,
+        depth + 1,
+      );
+      linkedYears.push(source.year);
     }
 
-    if (grids.length === 0) {
-      const rawSource = [...sources].reverse().find((source) => {
-        const table = reportsByYear.get(source.year)?.notes?.[source.ref];
-        return (table?.rows?.length ?? 0) > 0;
-      });
-      const raw = rawSource
-        ? reportsByYear.get(rawSource.year)?.notes?.[rawSource.ref]
-        : undefined;
-      if (!raw) {
-        row.note_ref = null;
-        return;
-      }
-      notes[lineKey] = { ...raw, title: fact.label || raw.title, source_notes: sources };
-      row.note_ref = lineKey;
-      return;
-    }
-
-    const child = mergeTableSeries(grids, panel, entities, [...display]);
-    if (!child) {
+    if (linkedYears.length === 0) {
       row.note_ref = null;
       return;
     }
-    child.table.title = fact.label || child.table.title;
-    child.table.source_notes = sources;
-    notes[lineKey] = child.table;
-    row.note_ref = lineKey;
-    registerLineNotes(
-      notes,
-      lineKey,
-      child,
-      reportsByYear,
-      extractedYears,
-      entities,
-      panel,
-      depth + 1,
-    );
+    row.note_ref = depth === 0 ? lineKey : `${linkedYears[0]}|${lineKey}`;
   });
 }
