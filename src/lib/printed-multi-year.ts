@@ -12,6 +12,10 @@ export type PrintedTable = {
   header_rows?: string[][];
   rows?: PrintedRow[];
   note_column?: number | null;
+  /** Every column that holds a note number. One per year. */
+  note_columns?: number[];
+  /** Printed note number for this line in each extracted year. */
+  source_notes?: { year: number; ref: string }[];
   /** Body/header column indexes where a new year starts. */
   year_breaks?: number[];
   ok?: boolean;
@@ -121,7 +125,13 @@ function readSlotValues(amounts: string[], model: HeaderModel, spacers: Set<numb
 }
 
 function normalizeLabel(label: string): string {
-  return label.toLowerCase().replace(/\s+/g, " ").trim();
+  let text = label.toLowerCase();
+  text = text.replace(/\([^)]*\)/g, " ");
+  text = text.replace(/\bvalue added tax\b/g, "tax");
+  text = text.replace(/\bprofits\b/g, "profit");
+  text = text.replace(/\btaxes\b/g, "tax");
+  text = text.replace(/[^a-z0-9]+/g, " ");
+  return text.replace(/\s+/g, " ").trim();
 }
 
 type RowFact = {
@@ -130,9 +140,16 @@ type RowFact = {
   note: string;
   page: string;
   noteRef: string | null;
+  /** Note number printed on this line in each report year. */
+  notesByYear: Map<number, string>;
   amounts: Map<string, string>;
   changes: Map<string, string>;
 };
+
+function noteToken(value: string | null | undefined): string {
+  const text = String(value ?? "").trim();
+  return /^\d+(?:\.\d+)?$/.test(text) ? text : "";
+}
 
 function factKey(entity: string, year: number): string {
   return `${entity}|${year}`;
@@ -150,20 +167,25 @@ function ingestReport(table: PrintedTable, reportYear: number): Map<string, RowF
     const cells = (row.cells ?? []).map((cell) => String(cell ?? "").trim());
     const label = cells[0] ?? "";
     const base = normalizeLabel(label);
+    if (!base) continue;
     const occurrence = seen.get(base) ?? 0;
     seen.set(base, occurrence + 1);
     const key = `${base}#${occurrence}`;
     const amounts = cells.slice(model.prefix);
     const values = readSlotValues(amounts, model, spacers);
+    const printedNote =
+      noteToken(model.prefix > 1 ? cells[1] : "") || noteToken(row.note_ref);
     const fact: RowFact = facts.get(key) ?? {
       label,
       style: (row.style ?? "data").toLowerCase(),
-      note: model.prefix > 1 ? cells[1] ?? "" : "",
+      note: printedNote,
       page: model.prefix > 2 ? cells[2] ?? "" : "",
       noteRef: row.note_ref ?? null,
+      notesByYear: new Map<number, string>(),
       amounts: new Map(),
       changes: new Map(),
     };
+    if (printedNote) fact.notesByYear.set(reportYear, printedNote);
     model.slots.forEach((slot, index) => {
       const value = values[index] ?? "";
       if (!value) return;
@@ -184,6 +206,25 @@ function ingestReport(table: PrintedTable, reportYear: number): Map<string, RowF
   return facts;
 }
 
+function isYearGrid(table: PrintedTable): boolean {
+  const rows = table.header_rows ?? [];
+  if (rows.length === 0) return false;
+  const model = headerModel(rows);
+  if (model.slots.length < 1 || model.prefix > 4) return false;
+  const topLabels = (rows[0] ?? []).map((cell) => cell.trim()).filter(Boolean);
+  if (rows.length > 1 && topLabels.some((label) => label.length > 24)) return false;
+  const bottom = rows[rows.length - 1] ?? [];
+  return bottom.every((cell) => {
+    const text = cell.trim();
+    return (
+      !text ||
+      /^20\d{2}$/.test(text) ||
+      /change/i.test(text) ||
+      /^(note|page|rs\.?|lkr)\b/i.test(text)
+    );
+  });
+}
+
 function inRange(year: number, fromYear: number | null, toYear: number | null): boolean {
   if (fromYear != null && year < fromYear) return false;
   if (toYear != null && year > toYear) return false;
@@ -197,30 +238,30 @@ function entitiesForPanel(entities: string[], panel: "group" | "company"): strin
   return company.length > 0 ? company : entities.slice(-1);
 }
 
-export function mergePrintedStatements(
-  reports: PrintedPack[],
-  statementKey: string,
-  fromYear: number | null = null,
-  toYear: number | null = null,
-  panel: "group" | "company" = "group",
-): MergedPrintedStatement | null {
-  const ranged = reports
-    .filter((report) => Number.isFinite(report.year))
-    .filter((report) => inRange(report.year, fromYear, toYear))
-    .sort((a, b) => a.year - b.year);
-  if (ranged.length === 0) return null;
+type YearTable = { year: number; table?: PrintedTable };
 
-  const newest = ranged[ranged.length - 1];
-  const statement = newest.statements?.find((item) => item.key === statementKey);
-  if (!statement) return null;
+type SeriesMerge = {
+  table: PrintedTable;
+  facts: Map<string, RowFact>;
+  order: string[];
+  years: number[];
+};
 
-  const perReport = ranged.map((report) => {
-    const table = report.statements?.find((item) => item.key === statementKey);
-    return {
-      year: report.year,
-      facts: table ? ingestReport(table, report.year) : new Map<string, RowFact>(),
-    };
-  });
+function mergeTableSeries(
+  series: YearTable[],
+  panel: "group" | "company",
+  entities: string[],
+  displayYears?: number[],
+): SeriesMerge | null {
+  const present = series.filter((item) => item.table);
+  if (present.length === 0) return null;
+  const newest = present[present.length - 1]!;
+
+  const perReport = series.map((item) => ({
+    year: item.year,
+    facts: item.table ? ingestReport(item.table, item.year) : new Map<string, RowFact>(),
+  }));
+  if (!perReport.some((item) => item.facts.size > 0)) return null;
 
   const merged = new Map<string, RowFact>();
   for (const report of perReport) {
@@ -233,6 +274,7 @@ export function mergePrintedStatements(
           note: fact.note,
           page: fact.page,
           noteRef: fact.noteRef,
+          notesByYear: new Map(fact.notesByYear),
           amounts: new Map(fact.amounts),
           changes: new Map(fact.changes),
         });
@@ -243,6 +285,11 @@ export function mergePrintedStatements(
       if (fact.note) target.note = fact.note;
       if (fact.page) target.page = fact.page;
       if (fact.noteRef) target.noteRef = fact.noteRef;
+      for (const [year, note] of fact.notesByYear) {
+        if (year === report.year || !target.notesByYear.has(year)) {
+          target.notesByYear.set(year, note);
+        }
+      }
       for (const [id, value] of fact.amounts) {
         const year = Number(id.split("|")[1]);
         if (year === report.year || !target.amounts.has(id)) target.amounts.set(id, value);
@@ -266,84 +313,207 @@ export function mergePrintedStatements(
     }
   }
 
-  const entities: string[] = [];
-  const newestModel = headerModel(statement.header_rows ?? []);
+  const knownEntities = [...entities];
+  const newestModel = headerModel(newest.table?.header_rows ?? []);
   for (const slot of newestModel.slots) {
-    if (!entities.includes(slot.entity)) entities.push(slot.entity);
+    if (!knownEntities.includes(slot.entity)) knownEntities.push(slot.entity);
   }
   for (const fact of merged.values()) {
     for (const id of fact.amounts.keys()) {
       const entity = id.split("|")[0] ?? "";
-      if (entity && !entities.includes(entity)) entities.push(entity);
+      if (entity && !knownEntities.includes(entity)) knownEntities.push(entity);
     }
   }
 
-  const shownEntities = entitiesForPanel(entities, panel);
-
-  const reportYears = new Set(
-    ranged.map((report) => report.year).filter((year) => inRange(year, fromYear, toYear)),
+  const shownEntities = entitiesForPanel(knownEntities, panel);
+  const years = [...new Set(displayYears ?? series.map((item) => item.year))].sort(
+    (a, b) => b - a,
   );
-  const years = [...reportYears].sort((a, b) => b - a);
 
-  type Col = { entity: string; year: number; kind: "year" | "change" };
-  const columns: Col[] = [];
+  const columns: { entity: string; year: number }[] = [];
   const yearBreaks: number[] = [];
-  let columnIndex = 2;
+  const noteColumns: number[] = [];
+  let columnIndex = 1;
   for (const entity of shownEntities) {
     let firstYear = true;
     for (const year of years) {
       if (!firstYear) yearBreaks.push(columnIndex);
       firstYear = false;
-      columns.push({ entity, year, kind: "year" });
-      columnIndex += 1;
+      noteColumns.push(columnIndex);
+      columns.push({ entity, year });
+      columnIndex += 2;
     }
   }
 
-  const bottom = ["", "Note"];
+  const bottom = [""];
   for (const column of columns) {
-    bottom.push(column.kind === "change" ? "Change %" : String(column.year));
+    bottom.push("Note", String(column.year));
   }
-
   const body: PrintedRow[] = order.map((key) => {
     const fact = merged.get(key)!;
-    const cells = [fact.label, fact.note];
+    const cells = [fact.label];
     for (const column of columns) {
-      if (column.kind === "change") {
-        cells.push(fact.changes.get(factKey(column.entity, column.year)) ?? "");
-      } else {
-        cells.push(fact.amounts.get(factKey(column.entity, column.year)) ?? "");
-      }
+      cells.push(fact.notesByYear.get(column.year) ?? "");
+      cells.push(fact.amounts.get(factKey(column.entity, column.year)) ?? "");
     }
     return {
       cells,
-      note_ref: fact.noteRef,
+      note_ref: key,
       style: fact.style,
     };
   });
 
-  const notes: Record<string, PrintedTable> = {};
-  for (const report of ranged) {
-    for (const [ref, note] of Object.entries(report.notes ?? {})) {
-      notes[ref] = note;
-    }
-  }
+  const pages = [
+    ...new Set(present.flatMap((item) => item.table?.pages ?? [])),
+  ].sort((a, b) => a - b);
 
   return {
     table: {
-      key: statement.key,
-      title: statement.title,
-      unit: statement.unit || newest.unit || "",
-      pages: statement.pages,
+      key: newest.table?.key,
+      title: newest.table?.title,
+      unit: newest.table?.unit || "",
+      pages,
       header_rows: [bottom],
       rows: body,
-      note_column: 1,
+      note_column: noteColumns[0] ?? null,
+      note_columns: noteColumns,
       year_breaks: yearBreaks,
-      ok: body.some((row) => (row.cells?.length ?? 0) > 2),
+      ok: body.some((row) => row.cells.some((cell, index) => index > 0 && cell)),
     },
-    notes,
+    facts: merged,
+    order,
     years,
+  };
+}
+
+function collectEntities(reports: PrintedPack[], statementKey: string): string[] {
+  const entities: string[] = [];
+  for (const report of [...reports].reverse()) {
+    const table = report.statements?.find((item) => item.key === statementKey);
+    for (const slot of headerModel(table?.header_rows ?? []).slots) {
+      if (!entities.includes(slot.entity)) entities.push(slot.entity);
+    }
+  }
+  return entities;
+}
+
+export function mergePrintedStatements(
+  reports: PrintedPack[],
+  statementKey: string,
+  fromYear: number | null = null,
+  toYear: number | null = null,
+  panel: "group" | "company" = "group",
+): MergedPrintedStatement | null {
+  const ranged = reports
+    .filter((report) => Number.isFinite(report.year))
+    .filter((report) => inRange(report.year, fromYear, toYear))
+    .sort((a, b) => a.year - b.year);
+  if (ranged.length === 0) return null;
+
+  const newest = ranged[ranged.length - 1];
+  const statement = newest.statements?.find((item) => item.key === statementKey);
+  if (!statement) return null;
+
+  const entities = collectEntities(ranged, statementKey);
+  const mergedSeries = mergeTableSeries(
+    ranged.map((report) => ({
+      year: report.year,
+      table: report.statements?.find((item) => item.key === statementKey),
+    })),
+    panel,
+    entities,
+  );
+  if (!mergedSeries) return null;
+  mergedSeries.table.unit = mergedSeries.table.unit || newest.unit || "";
+
+  const reportsByYear = new Map(ranged.map((report) => [report.year, report]));
+  const extractedYears = new Set(ranged.map((report) => report.year));
+  const notes: Record<string, PrintedTable> = {};
+  registerLineNotes(notes, "", mergedSeries, reportsByYear, extractedYears, entities, panel, 0);
+
+  return {
+    table: mergedSeries.table,
+    notes,
+    years: ranged.map((report) => report.year).sort((a, b) => b - a),
     entities,
     companyName: newest.company_name || newest.company_slug,
-    unit: statement.unit || newest.unit || "",
+    unit: mergedSeries.table.unit || newest.unit || "",
   };
+}
+
+function registerLineNotes(
+  notes: Record<string, PrintedTable>,
+  prefix: string,
+  series: SeriesMerge,
+  reportsByYear: Map<number, PrintedPack>,
+  extractedYears: Set<number>,
+  entities: string[],
+  panel: "group" | "company",
+  depth: number,
+): void {
+  series.order.forEach((key, index) => {
+    const fact = series.facts.get(key);
+    const row = series.table.rows?.[index];
+    if (!fact || !row) return;
+    const lineKey = prefix ? `${prefix}/${key}` : key;
+    const sources = [...fact.notesByYear.entries()]
+      .filter(([year]) => extractedYears.has(year))
+      .sort((a, b) => b[0] - a[0])
+      .map(([year, ref]) => ({ year, ref }));
+    if (sources.length === 0 || depth > 3) {
+      row.note_ref = null;
+      return;
+    }
+
+    const grids: YearTable[] = [];
+    const display = new Set<number>();
+    for (const source of [...sources].reverse()) {
+      const table = reportsByYear.get(source.year)?.notes?.[source.ref];
+      if (!table || !(table.rows?.length) || !isYearGrid(table)) continue;
+      grids.push({ year: source.year, table });
+      display.add(source.year);
+      for (const slot of headerModel(table.header_rows ?? []).slots) {
+        if (slot.kind === "year" && slot.year != null && extractedYears.has(slot.year)) {
+          display.add(slot.year);
+        }
+      }
+    }
+
+    if (grids.length === 0) {
+      const rawSource = sources.find((source) => {
+        const table = reportsByYear.get(source.year)?.notes?.[source.ref];
+        return (table?.rows?.length ?? 0) > 0;
+      });
+      const raw = rawSource
+        ? reportsByYear.get(rawSource.year)?.notes?.[rawSource.ref]
+        : undefined;
+      if (!raw) {
+        row.note_ref = null;
+        return;
+      }
+      notes[lineKey] = { ...raw, title: fact.label || raw.title, source_notes: sources };
+      row.note_ref = lineKey;
+      return;
+    }
+
+    const child = mergeTableSeries(grids, panel, entities, [...display]);
+    if (!child) {
+      row.note_ref = null;
+      return;
+    }
+    child.table.title = fact.label || child.table.title;
+    child.table.source_notes = sources;
+    notes[lineKey] = child.table;
+    row.note_ref = lineKey;
+    registerLineNotes(
+      notes,
+      lineKey,
+      child,
+      reportsByYear,
+      extractedYears,
+      entities,
+      panel,
+      depth + 1,
+    );
+  });
 }
