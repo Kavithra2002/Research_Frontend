@@ -50,7 +50,7 @@ const BUTTONS: {
     mode: "annual",
     label: "Run Annual",
     description:
-      "Fast local extract (~1 min/report): income, OCI, financial position, cash flows. No OpenAI, no notes.",
+      "Local PDF extract (~1 min/report): income, OCI, financial position, cash flows. No OpenAI, no notes.",
     variant: "secondary",
     needsAnnual: true,
     needsSelection: true,
@@ -58,7 +58,8 @@ const BUTTONS: {
   {
     mode: "quarterly",
     label: "Run Quarter",
-    description: "Extract ticked quarterly PDFs into MongoDB.",
+    description:
+      "Local pdfplumber extract of ticked quarterly PDFs into MongoDB (OpenAI disabled).",
     variant: "secondary",
     needsQuarterly: true,
     needsSelection: true,
@@ -66,7 +67,8 @@ const BUTTONS: {
   {
     mode: "all",
     label: "Run selected all",
-    description: "Annual + quarterly extract on all ticked files.",
+    description:
+      "Annual + quarterly local PDF extract on all ticked files (no OpenAI).",
     variant: "default",
     needsSelection: true,
     needsBoth: true,
