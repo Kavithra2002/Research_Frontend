@@ -16,6 +16,9 @@ const LIVE_PREFIXES = [
 // that had traded when the dev server booted, so it hides the rest.
 const ALWAYS_FRESH_PREFIXES = [
   "/api/system/live-extraction/companies",
+  // Downloaded-report list mutates via scan/delete; a startup snapshot
+  // would keep showing ghost files that no longer exist on disk.
+  "/api/system/newly-uploaded",
   "/api/companies",
 ];
 
@@ -55,6 +58,13 @@ export function peekWarmupJson<T>(url: string): T | undefined {
   if (!store) return undefined;
   const value = store[warmupKey(url)];
   return value as T | undefined;
+}
+
+/** Drop a cached GET response so the next fetch hits the network. */
+export function clearWarmupEntry(url: string) {
+  const store = g().__AMBEON_WARMUP_SNAPSHOT__;
+  if (!store) return;
+  delete store[warmupKey(url)];
 }
 
 function isLiveKey(key: string): boolean {

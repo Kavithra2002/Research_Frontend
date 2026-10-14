@@ -45,7 +45,11 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
-import { peekWarmupJson } from "@/lib/warmup-data";
+import {
+  clearWarmupEntry,
+  peekWarmupJson,
+  WARMUP_SNAPSHOT_HEADER,
+} from "@/lib/warmup-data";
 import {
   clearReportSelections,
   listReportSelections,
@@ -237,8 +241,10 @@ export function NewlyUpdatedPanel() {
     if (!peekWarmupJson("/api/system/newly-uploaded")) setListLoading(true);
     setListError(null);
     try {
+      clearWarmupEntry("/api/system/newly-uploaded");
       const res = await fetch("/api/system/newly-uploaded", {
         cache: "no-store",
+        headers: { [WARMUP_SNAPSHOT_HEADER]: "1" },
       });
       const data = (await res.json()) as ApiListResponse;
       if (!res.ok) {
