@@ -137,7 +137,8 @@ function buildArgs(mode: ExtractMode, body: Record<string, unknown>): string[] {
     if (companySlug) args.push("--company-slug", companySlug);
     args.push("--force");
     args.push("--use-pdf-extract");
-    args.push("--force-note-capture");
+    // Main FS only — income / OCI / SoFP / cash flows (no note tables).
+    args.push("--no-note-extract");
     return args;
   }
   if (mode === "db-quarterly") {

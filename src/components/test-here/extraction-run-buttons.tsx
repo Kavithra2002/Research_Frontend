@@ -49,7 +49,8 @@ const BUTTONS: {
   {
     mode: "annual",
     label: "Run Annual",
-    description: "Extract ticked annual PDFs into MongoDB.",
+    description:
+      "Fast local extract (~1 min/report): income, OCI, financial position, cash flows. No OpenAI, no notes.",
     variant: "secondary",
     needsAnnual: true,
     needsSelection: true,
@@ -74,7 +75,7 @@ const BUTTONS: {
     mode: "db-annual",
     label: "Run DB Annual",
     description:
-      "Extract the ticked annual reports: income statement, comprehensive income, financial position, cash flows, and their notes.",
+      "Extract the ticked annual reports: income statement / profit or loss, comprehensive income, financial position, and cash flows (notes skipped).",
     variant: "outline",
     needsAnnual: true,
     needsSelection: true,
