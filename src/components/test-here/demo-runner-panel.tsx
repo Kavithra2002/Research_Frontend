@@ -33,6 +33,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { companySlugFromName } from "@/lib/extraction-nav";
 import {
   cancelDemoRun,
   getDemoRunProgressPct,
@@ -99,16 +100,6 @@ function isOkStatus(status: string): boolean {
   return s === "ok" || s === "skipped_existing" || s === "skipped existing";
 }
 
-// Mirror of the Python `_sanitize_company_key` so DB extraction targets the
-// same company_slug used when the financial tables were stored.
-function companySlugFromName(name: string): string {
-  return name
-    .trim()
-    .replace(/[\\/:*?"<>|]+/g, "_")
-    .replace(/\s+/g, "_")
-    .replace(/^[._]+|[._]+$/g, "");
-}
-
 function formatBytes(bytes: number) {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
   const units = ["B", "KB", "MB", "GB"];
@@ -124,13 +115,23 @@ function normalizeCompanyName(name: string): string {
   return (name || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
+function plausibleReportYear(year: number): boolean {
+  const now = new Date().getFullYear();
+  return year >= 1990 && year <= now + 1;
+}
+
 function inferYearsFromSelection(items: SelectedItem[]): number[] {
   return [
     ...new Set(
       items
         .map((i) => {
-          const m = i.group.match(/(20\d{2})/);
-          return m ? Number(m[1]) : null;
+          // Prefer "Annual report 2020" style wording over raw digit runs.
+          const labeled = i.group.match(
+            /(?:annual|quarterly|interim|report|year|fy)[^\d]{0,24}(20\d{2})/i,
+          );
+          const m = labeled ?? i.group.match(/(?<!\d)(20\d{2})(?!\d)/);
+          const year = m ? Number(m[1]) : null;
+          return year != null && plausibleReportYear(year) ? year : null;
         })
         .filter((y): y is number => y != null),
     ),
@@ -138,8 +139,13 @@ function inferYearsFromSelection(items: SelectedItem[]): number[] {
 }
 
 function parseYearFromGroup(group: string): number | null {
-  const m = group.match(/(20\d{2})/);
-  return m ? Number(m[1]) : null;
+  const labeled = group.match(
+    /(?:annual|quarterly|interim|report|year|fy)[^\d]{0,24}(20\d{2})/i,
+  );
+  const m = labeled ?? group.match(/(?<!\d)(20\d{2})(?!\d)/);
+  if (!m) return null;
+  const year = Number(m[1]);
+  return plausibleReportYear(year) ? year : null;
 }
 
 function parseQuarterFromGroup(group: string): number {
@@ -429,6 +435,36 @@ export function DemoRunnerPanel() {
   const hasSelectedQuarterly = quarterItems.length > 0;
   const extractionReady = selectedItems.length > 0;
 
+  const yearsMissingOnExtractedTables = React.useCallback(
+    async (companySlug: string, years: number[]): Promise<number[]> => {
+      try {
+        const res = await fetch("/api/extracted", { cache: "no-store" });
+        if (!res.ok) return years;
+        const json = (await res.json()) as {
+          companies?: Array<{
+            name: string;
+            years?: Array<{
+              year: number;
+              annual?: { statementCount?: number } | null;
+            }>;
+          }>;
+        };
+        const company = (json.companies ?? []).find(
+          (c) => c.name === companySlug,
+        );
+        const ready = new Set(
+          (company?.years ?? [])
+            .filter((y) => (y.annual?.statementCount ?? 0) > 0)
+            .map((y) => y.year),
+        );
+        return years.filter((y) => !ready.has(y)).sort((a, b) => b - a);
+      } catch {
+        return years;
+      }
+    },
+    [],
+  );
+
   const runMode = React.useCallback(
     async (
       mode:
@@ -473,10 +509,21 @@ export function DemoRunnerPanel() {
         if (!annualToRun.length || !quarterToRun.length) return;
         await runDemo(allToRun);
       } else if (mode === "db-annual") {
-        if (!annualToRun.length || !annualYears.length) return;
+        if (!annualToRun.length || !annualYears.length || !annualSlug) return;
+        const missing = await yearsMissingOnExtractedTables(
+          annualSlug,
+          annualYears,
+        );
+        if (missing.length > 0) {
+          window.alert(
+            `Before Run DB Annual, run Run Annual extraction first so these year(s) appear on the Extracted Tables page:\n\n${missing.join(", ")}\n\nRun DB Annual reuses those FS tables and only extracts clickable note tables.`,
+          );
+          return;
+        }
         await runExtract({
           mode: "db-annual",
           years: annualYears,
+          items: annualToRun,
           companySlug: annualSlug,
           force: true,
         });
@@ -488,7 +535,19 @@ export function DemoRunnerPanel() {
           companySlug: quarterSlug,
         });
       } else {
-        if (!annualToRun.length || !quarterToRun.length || !allYears.length) {
+        if (
+          !annualToRun.length ||
+          !quarterToRun.length ||
+          !allYears.length ||
+          !allSlug
+        ) {
+          return;
+        }
+        const missing = await yearsMissingOnExtractedTables(allSlug, allYears);
+        if (missing.length > 0) {
+          window.alert(
+            `Before Run DB, run Run Annual extraction first so these year(s) appear on the Extracted Tables page:\n\n${missing.join(", ")}`,
+          );
           return;
         }
         await runExtract({
@@ -498,7 +557,13 @@ export function DemoRunnerPanel() {
         });
       }
     },
-    [pipelineRunning, selectedItems, annualItems, quarterItems],
+    [
+      pipelineRunning,
+      selectedItems,
+      annualItems,
+      quarterItems,
+      yearsMissingOnExtractedTables,
+    ],
   );
 
   const handleCseDownload = React.useCallback(async () => {
@@ -509,6 +574,7 @@ export function DemoRunnerPanel() {
         company: activeCseCompany,
         reports: Array.from(cseDownloads.values()),
       });
+      // Re-scan Demo_Data so Local reports picks up newly saved PDFs.
       await load();
     } finally {
       setDownloading(false);
@@ -549,8 +615,12 @@ export function DemoRunnerPanel() {
                 </code>
                 , select reports in section 2 below, then run extraction. Tables are saved to
                 MongoDB as{" "}
-                <span className="font-medium">Company → Year → Annual/Quarterly</span>.
-                DB page data is populated only via the Run DB buttons here.
+                <span className="font-medium">Company → Year → Annual/Quarterly</span>.{" "}
+                <span className="font-medium">Run Annual / Quarter / selected all</span>{" "}
+                capture statement pages and extract tables with OpenAI into Extracted
+                Tables;{" "}
+                <span className="font-medium">Run DB</span> copies those tables
+                to the DB page and extracts note tables only (Run Annual first).
               </CardDescription>
             </div>
             <Button
@@ -912,6 +982,8 @@ export function DemoRunnerPanel() {
                   <Loader2 className="size-3.5 animate-spin" />
                   Loading local reports…
                 </div>
+              ) : error ? (
+                <p className="p-3 text-center text-xs text-destructive">{error}</p>
               ) : !activeLocalCompany ? (
                 <p className="p-3 text-center text-xs text-muted-foreground">
                   No local PDFs yet. Download reports on the left, then tick them

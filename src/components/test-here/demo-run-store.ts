@@ -8,6 +8,8 @@
  * (demo-run-floating-status.tsx) mirrors components/system/scan-store.ts.
  */
 
+import { clearWarmupByPrefix, clearWarmupEntry } from "@/lib/warmup-data";
+
 export type DemoRunItem = {
   company: string;
   report_type: "Annual" | "Quarterly";
@@ -175,6 +177,9 @@ function handleEvent(evt: Record<string, unknown>) {
           : null,
       });
       appendLog(`Done — ${evt.ok} ok, ${evt.failed} failed.`);
+      clearWarmupByPrefix("/api/extracted");
+      clearWarmupByPrefix("/api/db/printed");
+      clearWarmupEntry("/api/db/printed-companies");
       break;
     case "exit":
       setState({

@@ -50,7 +50,7 @@ const BUTTONS: {
     mode: "annual",
     label: "Run Annual",
     description:
-      "Local PDF extract (~1 min/report): income, OCI, financial position, cash flows. No OpenAI, no notes.",
+      "Find & capture statement pages, then OpenAI vision extracts income, OCI, financial position, and cash flows.",
     variant: "secondary",
     needsAnnual: true,
     needsSelection: true,
@@ -59,7 +59,7 @@ const BUTTONS: {
     mode: "quarterly",
     label: "Run Quarter",
     description:
-      "Local pdfplumber extract of ticked quarterly PDFs into MongoDB (OpenAI disabled).",
+      "Capture quarterly statement pages, then OpenAI vision extracts tables into MongoDB.",
     variant: "secondary",
     needsQuarterly: true,
     needsSelection: true,
@@ -68,7 +68,7 @@ const BUTTONS: {
     mode: "all",
     label: "Run selected all",
     description:
-      "Annual + quarterly local PDF extract on all ticked files (no OpenAI).",
+      "Annual + quarterly: capture pages then OpenAI vision extract on all ticked files.",
     variant: "default",
     needsSelection: true,
     needsBoth: true,
@@ -77,7 +77,7 @@ const BUTTONS: {
     mode: "db-annual",
     label: "Run DB Annual",
     description:
-      "Extract the ticked annual reports: income statement / profit or loss, comprehensive income, financial position, and cash flows (notes skipped).",
+      "Requires Run Annual first. Copies Extracted Tables FS onto the DB page, then extracts note tables only so notes are clickable.",
     variant: "outline",
     needsAnnual: true,
     needsSelection: true,
@@ -85,7 +85,8 @@ const BUTTONS: {
   {
     mode: "db-quarterly",
     label: "Run DB Quarter",
-    description: "Build quarterly COMB/DB data from stored tables.",
+    description:
+      "OpenAI vision refresh of quarterly PDFs + accuracy recheck, then map values into the DB page.",
     variant: "outline",
     needsQuarterly: true,
     needsSelection: true,
@@ -93,7 +94,8 @@ const BUTTONS: {
   {
     mode: "db-all",
     label: "Run DB selected all",
-    description: "Full COMB/DB pipeline for ticked years.",
+    description:
+      "Requires Run Annual first. DB annual (FS from Extracted Tables + notes) then quarterly for ticked years.",
     variant: "outline",
     needsSelection: true,
     needsBoth: true,
