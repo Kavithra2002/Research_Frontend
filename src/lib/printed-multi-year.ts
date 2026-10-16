@@ -53,9 +53,72 @@ export type MergedPrintedStatement = {
   unit: string;
 };
 
+function yearTokenScore(row: string[] | undefined, nowYear: number): number {
+  if (!row?.length) return 0;
+  let score = 0;
+  for (const cell of row) {
+    const label = String(cell ?? "").trim();
+    if (!/^20\d{2}$/.test(label)) continue;
+    const year = Number(label);
+    if (year >= 1990 && year <= nowYear + 1) score += 1;
+  }
+  return score;
+}
+
+function entityTokenScore(row: string[] | undefined): number {
+  if (!row?.length) return 0;
+  let score = 0;
+  for (const cell of row) {
+    const who = String(cell ?? "").trim();
+    if (/^(group|company|bank|parent)$/i.test(who)) score += 2;
+    else if (who && !/^20\d{2}$/.test(who) && !/^lkr$/i.test(who) && !/^note$/i.test(who)) {
+      score += 1;
+    }
+  }
+  return score;
+}
+
+/**
+ * Pick the header row that carries year labels (2024, 2025, …).
+ * OpenAI / printed extracts often put years in a middle row and currency
+ * (LKR) on the last row — using the last row alone drops every amount.
+ */
+function pickYearHeaderRow(headerRows: string[][], nowYear: number): string[] {
+  let best: string[] = headerRows[headerRows.length - 1] ?? [];
+  let bestScore = -1;
+  for (const row of headerRows) {
+    const score = yearTokenScore(row, nowYear);
+    if (score > bestScore) {
+      bestScore = score;
+      best = row;
+    }
+  }
+  return best;
+}
+
+/** Prefer Group/Company/Bank row (usually above the year row). */
+function pickEntityHeaderRow(headerRows: string[][], yearRow: string[]): string[] {
+  let best: string[] = headerRows[0] ?? [];
+  let bestScore = -1;
+  for (const row of headerRows) {
+    if (row === yearRow) continue;
+    // Skip pure currency / unit rows.
+    if (row.every((c) => !String(c ?? "").trim() || /^lkr$/i.test(String(c).trim()))) {
+      continue;
+    }
+    const score = entityTokenScore(row);
+    if (score > bestScore) {
+      bestScore = score;
+      best = row;
+    }
+  }
+  return best;
+}
+
 function headerModel(headerRows: string[][]): HeaderModel {
-  const top = headerRows[0] ?? [];
-  const bottom = headerRows[headerRows.length - 1] ?? [];
+  const nowYear = new Date().getFullYear();
+  const bottom = pickYearHeaderRow(headerRows, nowYear);
+  const top = pickEntityHeaderRow(headerRows, bottom);
   const width = Math.max(top.length, bottom.length);
   let entity = "";
   const slots: Slot[] = [];
@@ -63,11 +126,20 @@ function headerModel(headerRows: string[][]): HeaderModel {
   let seen = false;
   for (let i = 0; i < width; i++) {
     const who = String(top[i] ?? "").trim();
-    if (who) entity = who;
+    // Don't treat "Note" / currency as an entity name for amount columns.
+    if (who && !/^note$/i.test(who) && !/^lkr$/i.test(who) && !/^20\d{2}$/.test(who)) {
+      entity = who;
+    }
     const label = String(bottom[i] ?? "").trim();
     if (/^20\d{2}$/.test(label)) {
+      const year = Number(label);
+      // Ignore timestamp-fragment years (e.g. 2096) so they never become columns.
+      if (year < 1990 || year > nowYear + 1) {
+        if (!seen) prefix = i + 1;
+        continue;
+      }
       seen = true;
-      slots.push({ entity: entity || "Value", kind: "year", year: Number(label) });
+      slots.push({ entity: entity || "Value", kind: "year", year });
     } else if (/change/i.test(label)) {
       seen = true;
       slots.push({ entity: entity || "Value", kind: "change", year: null });
@@ -136,6 +208,27 @@ function normalizeLabel(label: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
 
+/** True when cell[0] is a shifted amount — never use as the description column. */
+function labelLooksLikeAmount(label: string): boolean {
+  const text = String(label ?? "").trim();
+  if (!text) return true;
+  if (/[A-Za-z]{2,}/.test(text)) return false;
+  if (/^\(?-?\d{1,3}(?:,\d{3})+(?:\.\d+)?\)?%?$/.test(text)) return true;
+  if (/^\(?-?\d{4,}(?:\.\d+)?\)?%?$/.test(text)) return true;
+  if (/^[\-–—]$/.test(text)) return true;
+  if (/^\d+\.\d{1,4}$/.test(text)) return true;
+  return false;
+}
+
+function isBetterLabel(candidate: string, current: string): boolean {
+  const candBad = labelLooksLikeAmount(candidate);
+  const curBad = labelLooksLikeAmount(current);
+  if (!candBad && curBad) return true;
+  if (candBad) return false;
+  if (!current.trim()) return Boolean(candidate.trim());
+  return candidate.trim().length > current.trim().length;
+}
+
 type RowFact = {
   label: string;
   style: string;
@@ -157,10 +250,65 @@ function factKey(entity: string, year: number): string {
   return `${entity}|${year}`;
 }
 
-function ingestReport(table: PrintedTable, reportYear: number): Map<string, RowFact> {
+function resolveBodyPrefix(
+  model: HeaderModel,
+  rows: PrintedRow[],
+): number {
+  let prefix = model.prefix;
+  // Header claims a Note column but body put the first amount at index 1 —
+  // common for note tables (Group/Company × current+prior with no note col).
+  if (prefix >= 2) {
+    const sample = rows
+      .map((row) => (row.cells ?? []).map((cell) => String(cell ?? "").trim()))
+      .filter((cells) => cells[0] && !labelLooksLikeAmount(cells[0]))
+      .slice(0, 12);
+    if (sample.length >= 3) {
+      const amountAt1 = sample.filter((cells) =>
+        labelLooksLikeAmount(cells[1] ?? ""),
+      ).length;
+      if (amountAt1 >= Math.ceil(sample.length * 0.5)) {
+        prefix = 1;
+      }
+    }
+  }
+  return prefix;
+}
+
+function yearsFromTable(table: PrintedTable, fallback: number): number[] {
+  const model = headerModel(table.header_rows ?? []);
+  const years = [
+    ...new Set(
+      model.slots
+        .filter((slot) => slot.kind === "year" && slot.year != null)
+        .map((slot) => slot.year as number),
+    ),
+  ].sort((a, b) => b - a);
+  if (years.length > 0) return years;
+  return [fallback, fallback - 1].filter((y) => y >= 1990);
+}
+
+type IngestMode = {
+  /**
+   * false (default): only keep this report's *current* year amounts for the
+   * multi-year statement grid — comparative prior-year columns must not fill
+   * another year's real column (2025 report's "2024" ≠ 2024 report data).
+   *
+   * true: keep every printed year column (for note popups that show current
+   * + last year together as in the PDF).
+   */
+  includeComparativeYears?: boolean;
+};
+
+function ingestReport(
+  table: PrintedTable,
+  reportYear: number,
+  mode: IngestMode = {},
+): Map<string, RowFact> {
+  const includeComparative = Boolean(mode.includeComparativeYears);
   const model = headerModel(table.header_rows ?? []);
   const rows = table.rows ?? [];
-  const spacers = spacerIndexes(rows, model.prefix);
+  const prefix = resolveBodyPrefix(model, rows);
+  const spacers = spacerIndexes(rows, prefix);
   const seen = new Map<string, number>();
   const facts = new Map<string, RowFact>();
   if (model.slots.length === 0) return facts;
@@ -168,40 +316,66 @@ function ingestReport(table: PrintedTable, reportYear: number): Map<string, RowF
   for (const row of rows) {
     const cells = (row.cells ?? []).map((cell) => String(cell ?? "").trim());
     const label = cells[0] ?? "";
+    // Bad extracts (e.g. 2018) put amounts in column 0 — never treat as a line key.
+    if (labelLooksLikeAmount(label)) continue;
+    // Skip echoed Group/Company/year header lines inside the body.
+    if (/^(group|company|bank)$/i.test(label)) {
+      const rest = cells.slice(1);
+      if (!rest.some((cell) => labelLooksLikeAmount(cell))) continue;
+    }
+    if (
+      !label &&
+      cells.slice(1).every((cell) => !cell || /^20\d{2}$/.test(cell))
+    ) {
+      continue;
+    }
     const base = normalizeLabel(label);
     if (!base) continue;
     const occurrence = seen.get(base) ?? 0;
     seen.set(base, occurrence + 1);
     const key = `${base}#${occurrence}`;
-    const amounts = cells.slice(model.prefix);
+    const amounts = cells.slice(prefix);
     const values = readSlotValues(amounts, model, spacers);
     const printedNote =
-      noteToken(model.prefix > 1 ? cells[1] : "") || noteToken(row.note_ref);
+      noteToken(prefix > 1 ? cells[1] : "") || noteToken(row.note_ref);
     const fact: RowFact = facts.get(key) ?? {
       label,
       style: (row.style ?? "data").toLowerCase(),
       note: printedNote,
-      page: model.prefix > 2 ? cells[2] ?? "" : "",
+      page: prefix > 2 ? cells[2] ?? "" : "",
       noteRef: row.note_ref ?? null,
       notesByYear: new Map<number, string>(),
       amounts: new Map(),
       changes: new Map(),
     };
+    if (isBetterLabel(label, fact.label)) fact.label = label;
     if (printedNote) fact.notesByYear.set(reportYear, printedNote);
     model.slots.forEach((slot, index) => {
       const value = values[index] ?? "";
       if (!value) return;
-      if (slot.kind === "year" && slot.year != null) {
-        const id = factKey(slot.entity, slot.year);
-        if (slot.year === reportYear || !fact.amounts.has(id)) {
-          fact.amounts.set(id, value);
+      // Never park a bare note ref in a year amount column.
+      if (
+        slot.kind === "year" &&
+        /^\d{1,2}(?:\.\d{1,2})?$/.test(value) &&
+        !/\d{1,3}(?:,\d{3})+/.test(value)
+      ) {
+        if (!printedNote) {
+          fact.notesByYear.set(reportYear, value);
+          fact.note = fact.note || value;
         }
+        return;
+      }
+      if (slot.kind === "year" && slot.year != null) {
+        // Statement multi-year: only this report's current year.
+        // Note popup: keep printed current + prior year columns.
+        if (!includeComparative && slot.year !== reportYear) return;
+        fact.amounts.set(factKey(slot.entity, slot.year), value);
       } else if (slot.kind === "change") {
         fact.changes.set(factKey(slot.entity, reportYear), value);
       }
     });
-    if (!fact.note && model.prefix > 1 && cells[1]) fact.note = cells[1];
-    if (!fact.page && model.prefix > 2 && cells[2]) fact.page = cells[2];
+    if (!fact.note && prefix > 1 && cells[1]) fact.note = cells[1];
+    if (!fact.page && prefix > 2 && cells[2]) fact.page = cells[2];
     if (!fact.noteRef && row.note_ref) fact.noteRef = row.note_ref;
     facts.set(key, fact);
   }
@@ -215,7 +389,9 @@ function isYearGrid(table: PrintedTable): boolean {
   if (model.slots.length < 1 || model.prefix > 4) return false;
   const topLabels = (rows[0] ?? []).map((cell) => cell.trim()).filter(Boolean);
   if (rows.length > 1 && topLabels.some((label) => label.length > 24)) return false;
-  const bottom = rows[rows.length - 1] ?? [];
+  // Use the year-bearing row (not always the last — may be LKR / units).
+  const nowYear = new Date().getFullYear();
+  const bottom = pickYearHeaderRow(rows, nowYear);
   return bottom.every((cell) => {
     const text = cell.trim();
     return (
@@ -264,14 +440,18 @@ function mergeTableSeries(
   panel: "group" | "company",
   entities: string[],
   displayYears?: number[],
+  mode: IngestMode = {},
 ): SeriesMerge | null {
+  const includeComparative = Boolean(mode.includeComparativeYears);
   const present = series.filter((item) => item.table);
   if (present.length === 0) return null;
   const newest = present[present.length - 1]!;
 
   const perReport = series.map((item) => ({
     year: item.year,
-    facts: item.table ? ingestReport(item.table, item.year) : new Map<string, RowFact>(),
+    facts: item.table
+      ? ingestReport(item.table, item.year, mode)
+      : new Map<string, RowFact>(),
   }));
   if (!perReport.some((item) => item.facts.size > 0)) return null;
 
@@ -292,19 +472,28 @@ function mergeTableSeries(
         });
         continue;
       }
-      if (fact.label) target.label = fact.label;
+      if (fact.label && isBetterLabel(fact.label, target.label)) {
+        target.label = fact.label;
+      }
       if (fact.style && fact.style !== "data") target.style = fact.style;
       if (fact.note) target.note = fact.note;
       if (fact.page) target.page = fact.page;
       if (fact.noteRef) target.noteRef = fact.noteRef;
       for (const [year, note] of fact.notesByYear) {
-        if (year === report.year || !target.notesByYear.has(year)) {
+        // Note refs belong to the report year that printed them.
+        if (year === report.year) {
           target.notesByYear.set(year, note);
         }
       }
       for (const [id, value] of fact.amounts) {
         const year = Number(id.split("|")[1]);
-        if (year === report.year || !target.amounts.has(id)) target.amounts.set(id, value);
+        if (includeComparative) {
+          // Note popup: keep every printed year from this single report.
+          target.amounts.set(id, value);
+        } else if (year === report.year) {
+          // Multi-year statement: each report only owns its current year.
+          target.amounts.set(id, value);
+        }
       }
       for (const [id, value] of fact.changes) target.changes.set(id, value);
     }
@@ -338,8 +527,9 @@ function mergeTableSeries(
   }
 
   const shownEntities = entitiesForPanel(knownEntities, panel);
+  // Newest years first — sit immediately right of the description column.
   const years = [...new Set(displayYears ?? series.map((item) => item.year))].sort(
-    (a, b) => a - b,
+    (a, b) => b - a,
   );
 
   const columns: { entity: string; year: number }[] = [];
@@ -357,23 +547,30 @@ function mergeTableSeries(
     }
   }
 
-  const bottom = [""];
+  const entityHeader = [""];
+  const yearHeader = [""];
   for (const column of columns) {
-    bottom.push("Note", String(column.year));
+    entityHeader.push(column.entity, "");
+    yearHeader.push("Note", String(column.year));
   }
-  const body: PrintedRow[] = order.map((key) => {
-    const fact = merged.get(key)!;
-    const cells = [fact.label];
-    for (const column of columns) {
-      cells.push(fact.notesByYear.get(column.year) ?? "");
-      cells.push(fact.amounts.get(factKey(column.entity, column.year)) ?? "");
-    }
-    return {
-      cells,
-      note_ref: key,
-      style: fact.style,
-    };
-  });
+
+  // Drop any residual amount-as-label rows that slipped through older packs.
+  const body: PrintedRow[] = order
+    .map((key) => {
+      const fact = merged.get(key)!;
+      if (labelLooksLikeAmount(fact.label)) return null;
+      const cells = [fact.label];
+      for (const column of columns) {
+        cells.push(fact.notesByYear.get(column.year) ?? "");
+        cells.push(fact.amounts.get(factKey(column.entity, column.year)) ?? "");
+      }
+      return {
+        cells,
+        note_ref: key,
+        style: fact.style,
+      } satisfies PrintedRow;
+    })
+    .filter((row): row is PrintedRow => row != null);
 
   const pages = [
     ...new Set(present.flatMap((item) => item.table?.pages ?? [])),
@@ -385,7 +582,7 @@ function mergeTableSeries(
       title: newest.table?.title,
       unit: newest.table?.unit || "",
       pages,
-      header_rows: [bottom],
+      header_rows: [entityHeader, yearHeader],
       rows: body,
       note_column: noteColumns[0] ?? null,
       note_columns: noteColumns,
@@ -428,6 +625,8 @@ export function mergePrintedStatements(
   if (!statement) return null;
 
   const entities = collectEntities(ranged, statementKey);
+  // Multi-year grid: each report year column comes only from that year's PDF
+  // (never from a later report's comparative prior-year column).
   const mergedSeries = mergeTableSeries(
     ranged.map((report) => ({
       year: report.year,
@@ -435,6 +634,8 @@ export function mergePrintedStatements(
     })),
     panel,
     entities,
+    undefined,
+    { includeComparativeYears: false },
   );
   if (!mergedSeries) return null;
   mergedSeries.table.unit = mergedSeries.table.unit || newest.unit || "";
@@ -447,7 +648,7 @@ export function mergePrintedStatements(
   return {
     table: mergedSeries.table,
     notes,
-    years: ranged.map((report) => report.year).sort((a, b) => a - b),
+    years: ranged.map((report) => report.year).sort((a, b) => b - a),
     entities,
     companyName: newest.company_name || newest.company_slug,
     unit: mergedSeries.table.unit || newest.unit || "",
@@ -492,9 +693,15 @@ function registerLineNotes(
         linkedYears.push(source.year);
         continue;
       }
-      const child = mergeTableSeries([{ year: source.year, table: raw }], panel, entities, [
-        source.year,
-      ]);
+      // Note popup: show this report's note as printed (current + last year).
+      const noteYears = yearsFromTable(raw, source.year);
+      const child = mergeTableSeries(
+        [{ year: source.year, table: raw }],
+        panel,
+        entities,
+        noteYears,
+        { includeComparativeYears: true },
+      );
       if (!child || numericCells(child.table) === 0) {
         notes[storageKey] = {
           ...raw,

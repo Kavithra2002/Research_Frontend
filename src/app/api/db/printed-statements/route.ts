@@ -41,11 +41,16 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  // Drop bogus years from old timestamp-filename parses (e.g. 2096).
+  const nowYear = new Date().getFullYear();
   const years = fs
     .readdirSync(dir)
     .filter((name) => name.endsWith(".json"))
     .map((name) => Number(name.slice(0, -5)))
-    .filter((year) => Number.isFinite(year))
+    .filter(
+      (year) =>
+        Number.isFinite(year) && year >= 1990 && year <= nowYear + 1,
+    )
     .sort((a, b) => b - a);
 
   const requested = Number(yearParam);
