@@ -1,3 +1,5 @@
+import { Suspense } from "react";
+
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -48,7 +50,9 @@ export default function Home() {
             </div>
           </header>
           <main className="flex min-w-0 flex-col px-4 pb-4 pt-2">
-            <ExtractedExplorer />
+            <Suspense fallback={null}>
+              <ExtractedExplorer />
+            </Suspense>
           </main>
         </SidebarInset>
       </SidebarProvider>

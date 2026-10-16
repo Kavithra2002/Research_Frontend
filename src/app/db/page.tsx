@@ -1,3 +1,5 @@
+import { Suspense } from "react";
+
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -49,7 +51,9 @@ export default function DbPage() {
           </header>
           {/* Page scroll lives here so table year headers can stick to the top of this pane. */}
           <main className="min-h-0 min-w-0 flex-1 overflow-auto overscroll-x-none px-4 pb-8">
-            <DbPageClient />
+            <Suspense fallback={null}>
+              <DbPageClient />
+            </Suspense>
           </main>
         </SidebarInset>
       </SidebarProvider>
