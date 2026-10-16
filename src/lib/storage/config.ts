@@ -28,7 +28,8 @@ export function getLocalRoot(root: StorageRoot): string {
 
   switch (root) {
     case "reports":
-      return resolveEnvPath("REPORTS_DIR", path.join(scriptRoot, "reports"));
+      // New CSE downloads land in Demo_Data/<Company>/<Annual|Quarterly>/…
+      return resolveEnvPath("REPORTS_DIR", path.join(scriptRoot, "Demo_Data"));
     case "newly_uploaded_report":
       return resolveEnvPath(
         "NEWLY_UPLOADED_DIR",
