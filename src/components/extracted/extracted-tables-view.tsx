@@ -53,7 +53,8 @@ export function statementsFromResults(
 ): ExtractedStatement[] {
   if (!results || typeof results !== "object") return [];
 
-  const keys = Object.keys(results);
+  // Notes belong on the DB page only — Extracted Tables is main FS.
+  const keys = Object.keys(results).filter((k) => !/^note_/i.test(k));
   keys.sort((a, b) => {
     const ai = STMT_ORDER.indexOf(a);
     const bi = STMT_ORDER.indexOf(b);

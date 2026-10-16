@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useSearchParams } from "next/navigation";
 import {
   Building2,
   ChevronsUpDown,
@@ -24,7 +25,13 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import { extractedFirstDataUrl, peekWarmupJson } from "@/lib/warmup-data";
+import {
+  clearWarmupByPrefix,
+  clearWarmupEntry,
+  extractedFirstDataUrl,
+  peekWarmupJson,
+  WARMUP_SNAPSHOT_HEADER,
+} from "@/lib/warmup-data";
 
 import {
   ExtractedTablesView,
@@ -154,6 +161,8 @@ function preferredQuarter(available: string[]): string | null {
 }
 
 export function ExtractedExplorer() {
+  const searchParams = useSearchParams();
+  const companyFromUrl = searchParams.get("company")?.trim() || null;
   const warmedList = peekWarmupJson<ListResponse>("/api/extracted");
   const warmedDataUrl = extractedFirstDataUrl(warmedList);
   const warmedData = warmedDataUrl
@@ -169,7 +178,7 @@ export function ExtractedExplorer() {
   const [error, setError] = React.useState<string | null>(null);
   const [query, setQuery] = React.useState("");
   const [selectedCompany, setSelectedCompany] = React.useState<string | null>(
-    warmedList?.companies?.[0]?.name ?? null,
+    companyFromUrl ?? warmedList?.companies?.[0]?.name ?? null,
   );
   const [selectedYear, setSelectedYear] = React.useState<number | null>(() => {
     const company = warmedList?.companies?.[0];
@@ -192,7 +201,11 @@ export function ExtractedExplorer() {
     if (!peekWarmupJson("/api/extracted")) setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/extracted", { cache: "no-store" });
+      clearWarmupByPrefix("/api/extracted");
+      const res = await fetch("/api/extracted", {
+        cache: "no-store",
+        headers: { [WARMUP_SNAPSHOT_HEADER]: "1" },
+      });
       const data = (await res.json()) as ListResponse;
       if (!res.ok) {
         throw new Error(data.error ?? `Request failed (${res.status})`);
@@ -221,10 +234,19 @@ export function ExtractedExplorer() {
   }, [companies, query]);
 
   React.useEffect(() => {
+    if (companyFromUrl && companies.some((c) => c.name === companyFromUrl)) {
+      setSelectedCompany(companyFromUrl);
+      return;
+    }
     if (!selectedCompany && companies.length > 0) {
       setSelectedCompany(companies[0].name);
     }
-  }, [companies, selectedCompany]);
+  }, [companies, selectedCompany, companyFromUrl]);
+
+  // Re-fetch company list when arriving from a fresh extraction run.
+  React.useEffect(() => {
+    if (companyFromUrl) void load();
+  }, [companyFromUrl, load]);
 
   const company = React.useMemo(
     () => companies.find((c) => c.name === selectedCompany) ?? null,
@@ -342,16 +364,20 @@ export function ExtractedExplorer() {
       params.set("quarter", selectedQuarter);
     }
     const url = `/api/extracted/data?${params.toString()}`;
+    // Never short-circuit on warmup for statement payloads — after a re-extract
+    // the boot snapshot can keep showing the old garbled table forever.
+    clearWarmupEntry(url);
     const cached = peekWarmupJson<DataResponse>(url);
     if (cached) {
       setStatements(statementsFromResults(cached.results ?? null));
-      setDataLoading(false);
-      return;
     }
     let cancelled = false;
     setDataLoading(true);
     setDataError(null);
-    fetch(url, { cache: "no-store" })
+    fetch(url, {
+      cache: "no-store",
+      headers: { [WARMUP_SNAPSHOT_HEADER]: "1" },
+    })
       .then(async (res) => {
         const json = (await res.json()) as DataResponse;
         if (!res.ok) {
