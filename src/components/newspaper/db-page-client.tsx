@@ -11,12 +11,12 @@ export function DbPageClient() {
         <div className="min-w-0">
           <h1 className="font-heading text-lg font-semibold">DB</h1>
           <p className="text-sm text-muted-foreground">
-            Preview and download historical financial statements. Each company
-            keeps its own line items. To populate or refresh DB values, use{" "}
-            <span className="font-medium">Development → Run DB Annual</span>,{" "}
-            <span className="font-medium">Run DB Quarter</span>, or{" "}
-            <span className="font-medium">Run DB selected all</span> after
-            downloading reports from the CSE.
+            Same main FS tables as Extracted Tables — with clickable Note
+            numbers that open the note table. Run{" "}
+            <span className="font-medium">Run Annual</span> first so the year
+            is on Extracted Tables, then{" "}
+            <span className="font-medium">Development → Run DB Annual</span> to
+            copy those tables and extract notes.
           </p>
         </div>
       </div>

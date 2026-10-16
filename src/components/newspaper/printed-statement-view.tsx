@@ -168,22 +168,29 @@ function StatementGrid({
                   const value = cells[cellIndex] ?? "";
                   const noteIndex = noteColumnList.indexOf(cellIndex);
                   const columnYear = noteIndex >= 0 ? noteYears[noteIndex] : undefined;
-                  const openRef = row.note_ref
-                    ? row.note_ref.includes("|")
-                      ? row.note_ref
+                  const isNoteCol = noteColumns.has(cellIndex);
+                  const noteToken = isNoteCol && isNoteToken(value) ? value.trim() : "";
+                  // Line-key lookup (year|revenue#0) from multi-year merge; also
+                  // allow year|5 so a click still works if notes are keyed by ref.
+                  const openRef = noteToken
+                    ? row.note_ref
+                      ? row.note_ref.includes("|")
+                        ? row.note_ref
+                        : columnYear != null
+                          ? `${columnYear}|${row.note_ref}`
+                          : noteToken
                       : columnYear != null
-                        ? `${columnYear}|${row.note_ref}`
-                        : null
+                        ? `${columnYear}|${noteToken}`
+                        : noteToken
                     : null;
-                  const noteHere =
-                    noteColumns.has(cellIndex) && isNoteToken(value) && Boolean(openRef);
+                  const noteHere = Boolean(openRef);
                   return (
                     <td
                       key={cellIndex}
                       className={cn(
                         "border-b px-2 py-1 align-middle whitespace-nowrap",
                         yearBreaks.has(cellIndex) && "border-l-2 border-l-foreground/35",
-                        noteColumns.has(cellIndex)
+                        isNoteCol
                           ? "w-16 min-w-16 px-1 text-center"
                           : cellIndex === 0
                             ? "sticky left-0 z-10 min-w-56 max-w-md bg-inherit text-left"
@@ -198,7 +205,7 @@ function StatementGrid({
                       )}
                     >
                       {noteHere ? (
-                        <NoteButton noteRef={openRef ?? value} label={value} onOpen={onOpenNote} />
+                        <NoteButton noteRef={openRef!} label={noteToken || value} onOpen={onOpenNote} />
                       ) : (
                         value
                       )}
@@ -214,6 +221,21 @@ function StatementGrid({
   );
 }
 
+function capturedStatementKeys(reports: PrintedPack[]): string[] {
+  const keys = new Set<string>();
+  for (const report of reports) {
+    for (const table of report.statements ?? []) {
+      const key = String(table.key ?? "").trim();
+      if (!key) continue;
+      const rows = table.rows ?? [];
+      if (table.ok === true || rows.length > 0) {
+        keys.add(key);
+      }
+    }
+  }
+  return [...keys];
+}
+
 export function PrintedStatementPanel({
   company,
   statementKey,
@@ -223,6 +245,7 @@ export function PrintedStatementPanel({
   toYear = null,
   entity = "group",
   onAvailableYears,
+  onAvailableStatements,
   onEntities,
   children,
 }: {
@@ -234,6 +257,8 @@ export function PrintedStatementPanel({
   toYear?: number | null;
   entity?: "group" | "company";
   onAvailableYears?: (years: number[]) => void;
+  /** Storage keys present in extraction results (e.g. income_statement, sofp). */
+  onAvailableStatements?: (keys: string[]) => void;
   onEntities?: (entities: string[]) => void;
   children?: React.ReactNode;
 }) {
@@ -244,14 +269,17 @@ export function PrintedStatementPanel({
   const [openNote, setOpenNote] = React.useState<string | null>(null);
   const onYearsRef = React.useRef(onAvailableYears);
   onYearsRef.current = onAvailableYears;
+  const onStatementsRef = React.useRef(onAvailableStatements);
+  onStatementsRef.current = onAvailableStatements;
   const onEntitiesRef = React.useRef(onEntities);
   onEntitiesRef.current = onEntities;
 
   React.useEffect(() => {
-    if (!enabled || !company || !statementKey) {
+    if (!enabled || !company) {
       setReports([]);
       setMissing(false);
       setLoading(false);
+      onStatementsRef.current?.([]);
       return;
     }
     let cancelled = false;
@@ -267,7 +295,11 @@ export function PrintedStatementPanel({
         };
         if (!res.ok) {
           if (res.status === 404) {
-            if (!cancelled) setMissing(true);
+            if (!cancelled) {
+              setMissing(true);
+              setReports([]);
+              onStatementsRef.current?.([]);
+            }
             return;
           }
           throw new Error(json.error ?? `Failed (${res.status})`);
@@ -278,12 +310,14 @@ export function PrintedStatementPanel({
           onYearsRef.current?.(
             json.available_years ?? next.map((report) => report.year),
           );
+          onStatementsRef.current?.(capturedStatementKeys(next));
         }
       })
       .catch((err) => {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : String(err));
           setReports([]);
+          onStatementsRef.current?.([]);
         }
       })
       .finally(() => {
@@ -292,7 +326,7 @@ export function PrintedStatementPanel({
     return () => {
       cancelled = true;
     };
-  }, [company, enabled, refreshToken, statementKey]);
+  }, [company, enabled, refreshToken]);
 
   const merged = React.useMemo(
     () =>
@@ -301,6 +335,31 @@ export function PrintedStatementPanel({
         : null,
     [entity, fromYear, reports, statementKey, toYear],
   );
+
+  const note = React.useMemo(() => {
+    if (!openNote || !merged) return null;
+    const direct = merged.notes?.[openNote];
+    if (direct) return direct;
+    // Fallback: openNote may be "2025|5" when line-key linkage was missing.
+    const pipe = openNote.indexOf("|");
+    if (pipe <= 0) return null;
+    const year = Number(openNote.slice(0, pipe));
+    const ref = openNote.slice(pipe + 1).trim();
+    if (!Number.isFinite(year) || !ref) return null;
+    for (const table of Object.values(merged.notes ?? {})) {
+      const hits = table.source_notes ?? [];
+      if (hits.some((s) => s.year === year && s.ref === ref)) return table;
+    }
+    const pack = reports.find((r) => r.year === year);
+    const raw = pack?.notes?.[ref];
+    return raw
+      ? {
+          ...raw,
+          title: raw.title || `Note ${ref}`,
+          source_notes: [{ year, ref }],
+        }
+      : null;
+  }, [merged, openNote, reports]);
 
   const entityKey = (merged?.entities ?? []).join("|");
   React.useEffect(() => {
@@ -328,11 +387,13 @@ export function PrintedStatementPanel({
       <>
         {children ?? (
           <div className="flex min-h-[320px] flex-col items-center justify-center gap-2 rounded-xl border border-dashed bg-muted/20 p-8 text-center">
-            <p className="text-sm font-medium">No statements extracted yet</p>
+            <p className="text-sm font-medium">No DB statements for this company yet</p>
             <p className="max-w-md text-xs text-muted-foreground">
-              Tick an annual report under Development, then click Run DB Annual.
-              The income statement, comprehensive income, balance sheet, cash
-              flow, and their notes are saved for the years you select.
+              First run <span className="font-medium">Run Annual</span> so the
+              year appears on Extracted Tables. Then run{" "}
+              <span className="font-medium">Run DB Annual</span> — it reuses
+              those FS tables and extracts note tables so Note numbers are
+              clickable here.
             </p>
           </div>
         )}
@@ -341,7 +402,6 @@ export function PrintedStatementPanel({
   }
 
   const unit = statement?.unit || merged?.unit || "";
-  const note = openNote ? merged?.notes?.[openNote] : null;
   const sourceNotes = note?.source_notes ?? [];
   const uniqueNoteRefs = [...new Set(sourceNotes.map((item) => item.ref))];
   const yearLabel =

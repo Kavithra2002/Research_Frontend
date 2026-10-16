@@ -40,7 +40,7 @@ import {
 
 type DetailLevel = "summary" | "detailed";
 type DataCategory = "financial" | "non_financial";
-type StatementType = "income" | "oci" | "balance" | "cfs" | "soce";
+type StatementType = "income" | "oci" | "balance" | "cfs";
 type PeriodType =
   | "annual"
   | "quarterly"
@@ -87,16 +87,41 @@ const PERIOD_OPTIONS: { id: PeriodType; label: string }[] = [
   { id: "TTM", label: "TTM" },
 ];
 
-const STATEMENT_OPTIONS: { id: StatementType; label: string; short: string }[] =
-  [
-    { id: "income", label: "Income statement", short: "IS" },
-    { id: "oci", label: "Comprehensive income", short: "OCI" },
-    { id: "balance", label: "Balance Sheet", short: "BS" },
-    { id: "cfs", label: "CFS", short: "CFS" },
-    { id: "soce", label: "SOCE", short: "SOCE" },
-  ];
+/** Same main-FS options / labels as Extracted Tables (notes are DB-only). */
+const STATEMENT_OPTIONS: {
+  id: StatementType;
+  label: string;
+  short: string;
+  /** Keys written by printed / COMB extractors. */
+  storageKeys: string[];
+}[] = [
+  {
+    id: "income",
+    label: "Income Statement",
+    short: "IS",
+    storageKeys: ["income_statement"],
+  },
+  {
+    id: "oci",
+    label: "Other Comprehensive Income (OCI)",
+    short: "OCI",
+    storageKeys: ["oci"],
+  },
+  {
+    id: "balance",
+    label: "Statement of Financial Position",
+    short: "SoFP",
+    storageKeys: ["sofp"],
+  },
+  {
+    id: "cfs",
+    label: "Statement of Cash Flows",
+    short: "CFS",
+    storageKeys: ["cash_flows"],
+  },
+];
 
-const PRINTED_STATEMENT_KEY: Record<Exclude<StatementType, "soce">, string> = {
+const PRINTED_STATEMENT_KEY: Record<StatementType, string> = {
   income: "income_statement",
   oci: "oci",
   balance: "sofp",
@@ -104,7 +129,7 @@ const PRINTED_STATEMENT_KEY: Record<Exclude<StatementType, "soce">, string> = {
 };
 
 const STATEMENT_SECTION_MATCH: Record<
-  Exclude<StatementType, "soce">,
+  StatementType,
   (label: string) => boolean
 > = {
   income: (l) => {
@@ -198,7 +223,7 @@ function shiftMonths(date: Date, months: number): Date {
 
 function filterRowsByStatement(
   rows: DbGridRow[],
-  statement: Exclude<StatementType, "soce">,
+  statement: StatementType,
 ): DbGridRow[] {
   const match = STATEMENT_SECTION_MATCH[statement];
   const out: DbGridRow[] = [];
@@ -423,6 +448,9 @@ export function DbTestView({
     React.useState<DataCategory>("financial");
   const [printedYears, setPrintedYears] = React.useState<number[]>([]);
   const [printedEntities, setPrintedEntities] = React.useState<string[]>([]);
+  const [printedStatementKeys, setPrintedStatementKeys] = React.useState<
+    string[]
+  >([]);
   const [fromYear, setFromYear] = React.useState<number | null>(null);
   const [toYear, setToYear] = React.useState<number | null>(null);
   const [fromMonth, setFromMonth] = React.useState<number | null>(null);
@@ -662,8 +690,7 @@ export function DbTestView({
 
   // Keep Entity / Statement controls stable even while preview is loading /
   // while Non Financial Data is selected (panel stays mounted for height anim).
-  const isAnnualNotesContext =
-    period === "annual" && statement !== "soce";
+  const isAnnualNotesContext = period === "annual" && statement != null;
 
   const isAnnualNotesView =
     isAnnualNotesContext && preview?.view === "notes";
@@ -703,7 +730,6 @@ export function DbTestView({
   }, [filteredColumns.keys, isAnnualNotesView, rawColumnKeys]);
 
   const tableRows = React.useMemo(() => {
-    if (statement === "soce") return [];
     const rows = preview?.rows ?? [];
     if (!rows.length) return [];
     const canFilterStatement =
@@ -711,7 +737,7 @@ export function DbTestView({
       (isAnnualNotesView ||
         preview?.view === "fs" ||
         preview?.view === "quarterly");
-    if (canFilterStatement && statement && statement !== "soce") {
+    if (canFilterStatement && statement) {
       return filterRowsByStatement(rows, statement);
     }
     return rows;
@@ -748,13 +774,19 @@ export function DbTestView({
       ? noteBankMeta
       : cachedBankMeta;
 
+  const hasPrintedGroupCompany =
+    printedEntities.some((name) => /^group$/i.test(name)) &&
+    printedEntities.some((name) => !/^group$/i.test(name));
+
   const companyEntityName =
     printedEntities.find((name) => !/^group$/i.test(name)) ??
     (entityToggleMeta.available ? entityToggleMeta.bankLabel : null);
 
+  // Group / Company (or Bank) — show when FS headers or note tables expose
+  // both entities so the selected option filters related columns only.
   const showEntityToggle =
-    isAnnualNotesContext &&
-    (entityToggleMeta.available || companyEntityName != null);
+    period === "annual" &&
+    (hasPrintedGroupCompany || entityToggleMeta.available);
 
   const periodLabel = preview?.period_label ?? "";
   const unit = preview?.unit ?? "";
@@ -794,6 +826,55 @@ export function DbTestView({
       prev.join("|") === entities.join("|") ? prev : entities,
     );
   }, []);
+
+  const handlePrintedStatements = React.useCallback((keys: string[]) => {
+    const next = [...keys].sort();
+    setPrintedStatementKeys((prev) =>
+      prev.join("|") === next.join("|") ? prev : next,
+    );
+  }, []);
+
+  /** Statement pills shown for this company — only captured tables. */
+  const availableStatementOptions = React.useMemo(() => {
+    if (period === "annual") {
+      if (printedStatementKeys.length === 0) return [];
+      const available = new Set(printedStatementKeys);
+      return STATEMENT_OPTIONS.filter((opt) =>
+        opt.storageKeys.some((key) => available.has(key)),
+      );
+    }
+
+    // Quarterly / interim: derive from section headers in the loaded grid.
+    const rows = preview?.rows ?? [];
+    if (!rows.length) return [];
+    return STATEMENT_OPTIONS.filter((opt) => {
+      const match = STATEMENT_SECTION_MATCH[opt.id];
+      return rows.some(
+        (row) => row.kind === "section" && match(row.label),
+      );
+    });
+  }, [period, preview?.rows, printedStatementKeys]);
+
+  // Keep the active statement valid when company / extraction set changes.
+  React.useEffect(() => {
+    if (availableStatementOptions.length === 0) {
+      if (statement != null) setStatement(null);
+      return;
+    }
+    const stillValid =
+      statement != null &&
+      availableStatementOptions.some((opt) => opt.id === statement);
+    if (!stillValid) {
+      setStatement(availableStatementOptions[0]?.id ?? null);
+    }
+  }, [availableStatementOptions, statement]);
+
+  // Reset printed availability when the company changes.
+  React.useEffect(() => {
+    setPrintedStatementKeys([]);
+    setPrintedYears([]);
+    setPrintedEntities([]);
+  }, [company]);
 
   const fromDayOptions = dayOptions(fromYear, fromMonth);
   const toDayOptions = dayOptions(toYear, toMonth);
@@ -855,9 +936,9 @@ export function DbTestView({
   }, [toYear]);
 
   const selectStatement = React.useCallback((id: StatementType) => {
-    // Toggle: click again to deselect and restore the full Annual table.
-    setStatement((current) => (current === id ? null : id));
-    // Statement sections are annual — switch Period when needed.
+    // Switch between captured statement tables (clicking active keeps it).
+    setStatement(id);
+    // Statement sections are annual for printed packs — keep period when already annual.
     setPeriod((current) => (current === "annual" ? current : "annual"));
   }, []);
 
@@ -1159,24 +1240,30 @@ export function DbTestView({
                       Statement
                     </span>
                     <div className="inline-flex flex-wrap rounded-lg border bg-muted/40 p-0.5">
-                      {STATEMENT_OPTIONS.map((opt) => (
-                        <button
-                          key={opt.id}
-                          type="button"
-                          className={segmentBtn(statement === opt.id)}
-                          onClick={() => selectStatement(opt.id)}
-                          tabIndex={dataCategory === "financial" ? 0 : -1}
-                          title={
-                            opt.id === "soce"
-                              ? "SOCE — under development"
-                              : statement === opt.id
-                                ? `Clear ${opt.label} (show full Annual table)`
-                                : `${opt.label} — printed statement with clickable notes`
-                          }
-                        >
-                          {opt.label}
-                        </button>
-                      ))}
+                      {availableStatementOptions.length === 0 ? (
+                        <span className="px-2.5 py-1.5 text-xs text-muted-foreground">
+                          {period === "annual"
+                            ? "No statements extracted yet"
+                            : "No statement sections in this view"}
+                        </span>
+                      ) : (
+                        availableStatementOptions.map((opt) => (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            className={segmentBtn(statement === opt.id)}
+                            onClick={() => selectStatement(opt.id)}
+                            tabIndex={dataCategory === "financial" ? 0 : -1}
+                            title={
+                              statement === opt.id
+                                ? `Showing ${opt.label}`
+                                : `Switch to ${opt.label}`
+                            }
+                          >
+                            {opt.label}
+                          </button>
+                        ))
+                      )}
                     </div>
                   </div>
 
@@ -1290,27 +1377,22 @@ export function DbTestView({
               <AlertTitle>Could not load data</AlertTitle>
               <AlertDescription>{error}</AlertDescription>
             </Alert>
-          ) : statement === "soce" ? (
-            <div className="flex min-h-[320px] flex-col items-center justify-center gap-2 rounded-xl border border-dashed bg-muted/20 p-8 text-center">
-              <p className="text-sm font-medium">SOCE — under development</p>
-              <p className="max-w-sm text-xs text-muted-foreground">
-                Statement of Changes in Equity will be added later. Use Income
-                statement, Balance Sheet, or CFS for now.
-              </p>
-            </div>
           ) : period === "annual" ? (
             <PrintedStatementPanel
               company={company}
               statementKey={
                 statement
                   ? PRINTED_STATEMENT_KEY[statement]
-                  : "income_statement"
+                  : availableStatementOptions[0]
+                    ? PRINTED_STATEMENT_KEY[availableStatementOptions[0].id]
+                    : "income_statement"
               }
               refreshToken={refreshToken}
               fromYear={fromYear}
               toYear={toYear}
               entity={noteEntity === "group" ? "group" : "company"}
               onAvailableYears={handlePrintedYears}
+              onAvailableStatements={handlePrintedStatements}
               onEntities={handlePrintedEntities}
               enabled
             />

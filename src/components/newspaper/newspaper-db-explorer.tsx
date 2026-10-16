@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useSearchParams } from "next/navigation";
 import { Database, Download, Loader2, RefreshCw } from "lucide-react";
 
 import {
@@ -10,12 +11,23 @@ import {
   type CompanyOption,
 } from "@/components/ai/company-picker";
 import { DbTestView } from "@/components/newspaper/db-test-view";
+import {
+  getExtractGeneration,
+  getSnapshot as getLiveSnapshot,
+  getServerSnapshot as getLiveServerSnapshot,
+  subscribe as subscribeLiveExtract,
+} from "@/components/system/live-extraction-store";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { isCombPilotAvailable } from "@/lib/newspaper-db";
-import { peekWarmupJson } from "@/lib/warmup-data";
+import {
+  clearWarmupByPrefix,
+  clearWarmupEntry,
+  peekWarmupJson,
+  WARMUP_SNAPSHOT_HEADER,
+} from "@/lib/warmup-data";
 
 type ExtractedYearNode = {
   year: number;
@@ -38,6 +50,8 @@ type NewspaperDbExplorerProps = {
 };
 
 export function NewspaperDbExplorer({ className }: NewspaperDbExplorerProps) {
+  const searchParams = useSearchParams();
+  const companyFromUrl = searchParams.get("company")?.trim() || null;
   const warmedExtracted = peekWarmupJson<ListResponse>("/api/extracted");
   const warmedCse = peekWarmupJson<{ companies?: { name: string; symbol: string }[] }>(
     "/api/companies",
@@ -59,7 +73,7 @@ export function NewspaperDbExplorer({ className }: NewspaperDbExplorerProps) {
     warmedList,
   );
   const [selectedCompany, setSelectedCompany] = React.useState<string | null>(
-    warmedList[0]?.name ?? null,
+    companyFromUrl ?? warmedList[0]?.name ?? null,
   );
   const [loadingCompanies, setLoadingCompanies] = React.useState(!warmedExtracted);
   const [loadError, setLoadError] = React.useState<string | null>(null);
@@ -68,6 +82,13 @@ export function NewspaperDbExplorer({ className }: NewspaperDbExplorerProps) {
   const [refreshing, setRefreshing] = React.useState(false);
   const [testRefreshToken, setTestRefreshToken] = React.useState(0);
   const mountedRef = React.useRef(true);
+  const liveSnap = React.useSyncExternalStore(
+    subscribeLiveExtract,
+    getLiveSnapshot,
+    getLiveServerSnapshot,
+  );
+  const extractGeneration = liveSnap.extractGeneration ?? getExtractGeneration();
+  const lastExtractGenRef = React.useRef(extractGeneration);
 
   React.useEffect(() => {
     mountedRef.current = true;
@@ -82,9 +103,17 @@ export function NewspaperDbExplorer({ className }: NewspaperDbExplorerProps) {
     }
     if (mountedRef.current) setLoadError(null);
     try {
-      const [extractedRes, cseRes] = await Promise.all([
-        fetch("/api/extracted", { cache: "no-store" }),
-        fetch("/api/companies", { cache: "no-store" }),
+      clearWarmupByPrefix("/api/extracted");
+      clearWarmupByPrefix("/api/db/printed");
+      clearWarmupEntry("/api/db/printed-companies");
+      const bypass = { [WARMUP_SNAPSHOT_HEADER]: "1" };
+      const [extractedRes, cseRes, printedRes] = await Promise.all([
+        fetch("/api/extracted", { cache: "no-store", headers: bypass }),
+        fetch("/api/companies", { cache: "no-store", headers: bypass }),
+        fetch("/api/db/printed-companies", {
+          cache: "no-store",
+          headers: bypass,
+        }),
       ]);
       const json = (await extractedRes.json()) as ListResponse;
       if (!extractedRes.ok) {
@@ -92,8 +121,36 @@ export function NewspaperDbExplorer({ className }: NewspaperDbExplorerProps) {
           json.error ?? `Failed to load companies (${extractedRes.status})`,
         );
       }
-      const list = json.companies ?? [];
+      let list = json.companies ?? [];
       if (!mountedRef.current) return list;
+
+      // Merge companies that have Run DB printed JSON even if Mongo list lags.
+      try {
+        const printedJson = (await printedRes.json()) as {
+          companies?: { name: string; displayName: string; years?: number[] }[];
+        };
+        if (printedRes.ok && printedJson.companies?.length) {
+          const byName = new Map(list.map((c) => [c.name, c]));
+          for (const printed of printedJson.companies) {
+            const existing = byName.get(printed.name);
+            if (!existing) {
+              byName.set(printed.name, {
+                name: printed.name,
+                displayName: printed.displayName,
+                years: (printed.years ?? []).map((year) => ({ year })),
+              });
+            }
+          }
+          list = [...byName.values()].sort((a, b) =>
+            a.displayName.localeCompare(b.displayName, undefined, {
+              numeric: true,
+              sensitivity: "base",
+            }),
+          );
+        }
+      } catch {
+        /* printed-companies is optional enrichment */
+      }
 
       let cseCompanies: { name: string; symbol: string }[] = [];
       try {
@@ -117,7 +174,13 @@ export function NewspaperDbExplorer({ className }: NewspaperDbExplorerProps) {
 
       setRawCompanies(list);
       setCompanies(options);
-      setSelectedCompany((prev) => prev ?? list[0]?.name ?? null);
+      setSelectedCompany((prev) => {
+        if (companyFromUrl && list.some((c) => c.name === companyFromUrl)) {
+          return companyFromUrl;
+        }
+        if (prev && list.some((c) => c.name === prev)) return prev;
+        return list[0]?.name ?? null;
+      });
       return list;
     } catch (err) {
       if (!mountedRef.current) return [];
@@ -128,11 +191,26 @@ export function NewspaperDbExplorer({ className }: NewspaperDbExplorerProps) {
     } finally {
       if (mountedRef.current) setLoadingCompanies(false);
     }
-  }, []);
+  }, [companyFromUrl]);
 
   React.useEffect(() => {
     void loadCompanies();
   }, [loadCompanies]);
+
+  // After Run Annual / Run DB extract finishes, reload company list + tables.
+  React.useEffect(() => {
+    if (extractGeneration === lastExtractGenRef.current) return;
+    lastExtractGenRef.current = extractGeneration;
+    setTestRefreshToken((n) => n + 1);
+    void loadCompanies();
+  }, [extractGeneration, loadCompanies]);
+
+  React.useEffect(() => {
+    if (companyFromUrl) {
+      setSelectedCompany(companyFromUrl);
+      setTestRefreshToken((n) => n + 1);
+    }
+  }, [companyFromUrl]);
 
   const companyMeta = React.useMemo(
     () => rawCompanies.find((c) => c.name === selectedCompany) ?? null,
