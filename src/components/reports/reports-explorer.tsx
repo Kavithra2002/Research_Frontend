@@ -27,6 +27,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { formatReportDisplayName } from "@/lib/report-display-name";
 import { cn } from "@/lib/utils";
 import { peekWarmupJson } from "@/lib/warmup-data";
 
@@ -34,6 +35,9 @@ type ReportFile = {
   name: string;
   size: number;
   modifiedAt: string;
+  displayName?: string;
+  year?: number | null;
+  quarter?: number | null;
 };
 
 type Company = {
@@ -48,29 +52,6 @@ type ApiResponse = {
   error?: string;
 };
 
-function formatBytes(bytes: number) {
-  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB"];
-  const idx = Math.min(
-    units.length - 1,
-    Math.floor(Math.log(bytes) / Math.log(1024)),
-  );
-  const value = bytes / Math.pow(1024, idx);
-  return `${value.toFixed(value >= 10 || idx === 0 ? 0 : 1)} ${units[idx]}`;
-}
-
-function formatDate(iso: string) {
-  try {
-    return new Date(iso).toLocaleDateString(undefined, {
-      year: "numeric",
-      month: "short",
-      day: "2-digit",
-    });
-  } catch {
-    return iso;
-  }
-}
-
 function buildFileUrl(
   company: string,
   type: string,
@@ -80,6 +61,14 @@ function buildFileUrl(
   const params = new URLSearchParams({ company, type, file });
   if (download) params.set("download", "1");
   return `/api/reports/file?${params.toString()}`;
+}
+
+function fileLabel(file: ReportFile, reportType: string) {
+  return formatReportDisplayName(file.name, reportType, {
+    year: file.year,
+    quarter: file.quarter,
+    label: file.displayName,
+  });
 }
 
 export function ReportsExplorer() {
@@ -193,6 +182,20 @@ export function ReportsExplorer() {
     if (!company || !activeType || !selectedFile) return null;
     return buildFileUrl(company.name, activeType, selectedFile);
   }, [company, activeType, selectedFile]);
+
+  const selectedReport = React.useMemo(() => {
+    if (!company || !activeType || !selectedFile) return null;
+    return (
+      (company.reportTypes[activeType] ?? []).find(
+        (f) => f.name === selectedFile,
+      ) ?? null
+    );
+  }, [company, activeType, selectedFile]);
+
+  const selectedDisplayName =
+    selectedReport && activeType
+      ? fileLabel(selectedReport, activeType)
+      : selectedFile;
 
   const triggerLabel = company?.name ?? "Select a company";
 
@@ -405,6 +408,7 @@ export function ReportsExplorer() {
                               const isActive =
                                 activeType === t &&
                                 selectedFile === file.name;
+                              const label = fileLabel(file, t);
                               return (
                                 <li key={file.name}>
                                   <button
@@ -424,16 +428,9 @@ export function ReportsExplorer() {
                                     <div className="min-w-0 flex-1">
                                       <div
                                         className="truncate text-sm"
-                                        title={file.name}
+                                        title={`${label} (${file.name})`}
                                       >
-                                        {file.name}
-                                      </div>
-                                      <div className="mt-0.5 flex items-center gap-2 text-[11px] text-muted-foreground">
-                                        <span>{formatBytes(file.size)}</span>
-                                        <span aria-hidden="true">·</span>
-                                        <span>
-                                          {formatDate(file.modifiedAt)}
-                                        </span>
+                                        {label}
                                       </div>
                                     </div>
                                   </button>
@@ -457,9 +454,13 @@ export function ReportsExplorer() {
                             <div className="min-w-0">
                               <div
                                 className="truncate text-sm font-medium"
-                                title={selectedFile}
+                                title={
+                                  selectedFile
+                                    ? `${selectedDisplayName} (${selectedFile})`
+                                    : undefined
+                                }
                               >
-                                {selectedFile}
+                                {selectedDisplayName}
                               </div>
                               <div className="text-[11px] text-muted-foreground">
                                 {company.name} · {activeType}
