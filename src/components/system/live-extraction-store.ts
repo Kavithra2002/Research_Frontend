@@ -7,6 +7,8 @@
  * buttons stream real progress + logs and can be stopped.
  */
 
+import { clearWarmupByPrefix, clearWarmupEntry } from "@/lib/warmup-data";
+
 export type LiveReportSelection = {
   report_type: "Annual" | "Quarterly";
   year: number;
@@ -54,12 +56,20 @@ const initial: LiveJobState = {
   results: [],
 };
 
+type StoreSnapshot = {
+  download: LiveJobState;
+  extract: LiveJobState;
+  extractGeneration: number;
+};
+
 type Internal = {
   download: LiveJobState;
   extract: LiveJobState;
+  /** Bumps after every finished extract so DB / Extracted pages can auto-refresh. */
+  extractGeneration: number;
   listeners: Set<() => void>;
   abort: { download: AbortController | null; extract: AbortController | null };
-  snapshot: { download: LiveJobState; extract: LiveJobState };
+  snapshot: StoreSnapshot;
 };
 
 const g = globalThis as unknown as { __liveExtractionStore?: Internal };
@@ -67,12 +77,20 @@ if (!g.__liveExtractionStore) {
   g.__liveExtractionStore = {
     download: { ...initial },
     extract: { ...initial },
+    extractGeneration: 0,
     listeners: new Set(),
     abort: { download: null, extract: null },
-    snapshot: { download: { ...initial }, extract: { ...initial } },
+    snapshot: {
+      download: { ...initial },
+      extract: { ...initial },
+      extractGeneration: 0,
+    },
   };
 }
 const store = g.__liveExtractionStore!;
+if (typeof store.extractGeneration !== "number") {
+  store.extractGeneration = 0;
+}
 
 // Migrate a store instance that was created before `results` existed (the
 // object survives HMR / hot reloads via globalThis), so reads never hit
@@ -90,7 +108,11 @@ for (const k of ["download", "extract"] as const) {
 }
 
 function refreshSnapshot() {
-  store.snapshot = { download: store.download, extract: store.extract };
+  store.snapshot = {
+    download: store.download,
+    extract: store.extract,
+    extractGeneration: store.extractGeneration,
+  };
 }
 refreshSnapshot();
 
@@ -245,6 +267,18 @@ function handleEvent(kind: JobKind, evt: Record<string, unknown>) {
       break;
     case "done": {
       const prev = store[kind].progress;
+      // Drop warmup + bump generation *before* notify so DB page refreshes
+      // with the new company / year printed statements automatically.
+      if (kind === "extract") {
+        clearWarmupByPrefix("/api/extracted");
+        clearWarmupByPrefix("/api/db/printed");
+        clearWarmupEntry("/api/db/printed-companies");
+        store.extractGeneration += 1;
+      }
+      if (kind === "download") {
+        // Local reports list must re-scan Demo_Data after a download.
+        clearWarmupEntry("/api/demo/reports");
+      }
       setJob(kind, {
         summary: evt,
         running: false,
@@ -334,6 +368,11 @@ export function getSnapshot() {
 
 export function getServerSnapshot() {
   return store.snapshot;
+}
+
+/** Increments when an extract run finishes — use to refresh DB / Extracted UI. */
+export function getExtractGeneration(): number {
+  return store.extractGeneration;
 }
 
 export async function runDownload(payload: Record<string, unknown>) {

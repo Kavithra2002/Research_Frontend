@@ -132,25 +132,43 @@ function buildArgs(mode: ExtractMode, body: Record<string, unknown>): string[] {
       ? body.companySlug.trim()
       : null;
 
+  const model =
+    typeof body.model === "string" && body.model.trim()
+      ? body.model.trim()
+      : "gpt-5";
+  const apikey =
+    typeof body.apikey === "string" && body.apikey.trim()
+      ? body.apikey.trim()
+      : null;
+
   if (mode === "db-annual") {
     args.push("--years-stdin");
     if (companySlug) args.push("--company-slug", companySlug);
     args.push("--force");
     args.push("--use-pdf-extract");
-    // Main FS only — income / OCI / SoFP / cash flows (no note tables).
-    args.push("--no-note-extract");
+    // Notes-only: FS already in Extracted Tables; DB page adds clickable notes.
+    args.push("--include-notes");
+    args.push("--model", model);
+    if (apikey) args.push("--apikey", apikey);
     return args;
   }
   if (mode === "db-quarterly") {
     args.push("--items-stdin");
     if (companySlug) args.push("--company-slug", companySlug);
     if (body.force === true) args.push("--force");
+    args.push("--model", model);
+    if (apikey) args.push("--apikey", apikey);
     return args;
   }
   if (mode === "db-all") {
     const years = Array.isArray(body.years) ? body.years : [];
     args.push("--years", years.map(String).join(","));
     if (companySlug) args.push("--company-slug", companySlug);
+    args.push("--force");
+    args.push("--use-pdf-extract");
+    args.push("--include-notes");
+    args.push("--model", model);
+    if (apikey) args.push("--apikey", apikey);
     return args;
   }
 
@@ -158,13 +176,18 @@ function buildArgs(mode: ExtractMode, body: Record<string, unknown>): string[] {
   if (body.dryRun === true) args.push("--dry-run");
   if (body.force === true) args.push("--force");
   if (body.noUpload === true) args.push("--no-upload");
-  if (typeof body.model === "string") args.push("--model", body.model);
+  args.push("--model", model);
+  if (apikey) args.push("--apikey", apikey);
   return args;
 }
 
 function stdinPayload(mode: ExtractMode, body: Record<string, unknown>): string {
   if (mode === "db-annual") {
-    return JSON.stringify({ years: body.years ?? [] });
+    return JSON.stringify({
+      years: body.years ?? [],
+      // Ticked Demo_Data PDFs — same sources as Run Annual.
+      items: body.items ?? [],
+    });
   }
   if (mode === "db-quarterly") {
     return JSON.stringify({

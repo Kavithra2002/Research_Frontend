@@ -19,7 +19,19 @@ const ALWAYS_FRESH_PREFIXES = [
   // Downloaded-report list mutates via scan/delete; a startup snapshot
   // would keep showing ghost files that no longer exist on disk.
   "/api/system/newly-uploaded",
+  // Demo_Data local PDFs change whenever the Development page downloads
+  // a CSE report. A boot snapshot would leave "Local reports" empty
+  // (or stale) after Download selected.
+  "/api/demo/reports",
   "/api/companies",
+  // Report labels come from index.json (year/quarter); a boot snapshot
+  // would keep showing bare "Annual report" / "Quarterly report".
+  "/api/reports",
+  // Extracted / DB company lists + statement payloads change after every
+  // Run Annual / Run DB. A boot snapshot would hide newly extracted companies.
+  "/api/extracted",
+  "/api/db/printed-companies",
+  "/api/db/printed-statements",
 ];
 
 type GlobalWarmup = typeof globalThis & {
@@ -65,6 +77,22 @@ export function clearWarmupEntry(url: string) {
   const store = g().__AMBEON_WARMUP_SNAPSHOT__;
   if (!store) return;
   delete store[warmupKey(url)];
+}
+
+/**
+ * Drop every warmup snapshot whose key starts with ``prefix``.
+ * Needed after Run Annual / Run DB — clearing only ``/api/extracted`` leaves
+ * stale ``/api/extracted/data?company=…&year=…`` payloads on screen.
+ */
+export function clearWarmupByPrefix(prefix: string) {
+  const store = g().__AMBEON_WARMUP_SNAPSHOT__;
+  if (!store) return;
+  const p = prefix.startsWith("/") ? prefix : `/${prefix}`;
+  for (const key of Object.keys(store)) {
+    if (key === p || key.startsWith(p)) {
+      delete store[key];
+    }
+  }
 }
 
 function isLiveKey(key: string): boolean {

@@ -36,7 +36,7 @@ export async function sendMarianChat(
 }
 
 export type MarianSectionKind = "table" | "chart";
-export type MarianCoverage = "full" | "partial" | "derived";
+export type MarianCoverage = "full" | "partial" | "derived" | "none";
 
 export interface MarianSection {
   id: string;
