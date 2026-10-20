@@ -6,7 +6,6 @@ import { usePathname } from "next/navigation";
 import {
   Activity,
   BarChart3,
-  ChevronRight,
   Database,
   FileText,
   GitCompare,
@@ -25,11 +24,6 @@ import {
 } from "lucide-react";
 
 import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
-import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
@@ -40,9 +34,6 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarMenuSub,
-  SidebarMenuSubButton,
-  SidebarMenuSubItem,
   SidebarRail,
 } from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
@@ -185,7 +176,7 @@ const mainNav: NavItem[] = [
   },
   {
     title: "Macroeconomics",
-    url: "/macroeconomics/indicator",
+    url: "/macroeconomics/charts",
     icon: Globe2,
     iconColor: "teal",
     roles: ["Admin", "User"],
@@ -234,75 +225,6 @@ const workspaceNav: NavItem[] = [
   },
 ];
 
-const macroeconomicsSubNav = [
-  {
-    title: "Macroeconomics Indicator",
-    url: "/macroeconomics/indicator",
-  },
-  {
-    title: "Macroeconomics Analysis",
-    url: "/macroeconomics/analysis",
-  },
-  {
-    title: "Macroeconomics Charts",
-    url: "/macroeconomics/charts",
-  },
-] as const;
-
-function MacroeconomicsSidebarItem({
-  isActive,
-}: {
-  isActive: (url: string) => boolean;
-}) {
-  const pathname = usePathname();
-  const macroActive = pathname.startsWith("/macroeconomics");
-  const [open, setOpen] = React.useState(macroActive);
-
-  React.useEffect(() => {
-    if (macroActive) {
-      setOpen(true);
-    }
-  }, [macroActive]);
-
-  return (
-    <Collapsible open={open} onOpenChange={setOpen} className="group/collapsible">
-      <SidebarMenuItem>
-        <CollapsibleTrigger
-          render={
-            <SidebarMenuButton
-              tooltip="Macroeconomics"
-              isActive={macroActive}
-            />
-          }
-        >
-          <ColoredNavIcon icon={Globe2} color="teal" />
-          <span>Macroeconomics</span>
-          <ChevronRight
-            className={cn(
-              "ml-auto transition-transform duration-200",
-              open && "rotate-90",
-            )}
-          />
-        </CollapsibleTrigger>
-        <CollapsibleContent>
-          <SidebarMenuSub>
-            {macroeconomicsSubNav.map((item) => (
-              <SidebarMenuSubItem key={item.url}>
-                <SidebarMenuSubButton
-                  isActive={isActive(item.url)}
-                  render={<Link href={item.url} />}
-                >
-                  <span>{item.title}</span>
-                </SidebarMenuSubButton>
-              </SidebarMenuSubItem>
-            ))}
-          </SidebarMenuSub>
-        </CollapsibleContent>
-      </SidebarMenuItem>
-    </Collapsible>
-  );
-}
-
 export function AppSidebar({
   ...props
 }: React.ComponentProps<typeof Sidebar>) {
@@ -346,22 +268,16 @@ export function AppSidebar({
           <SidebarGroupContent>
             <SidebarMenu>
               {visibleMainNav.map((item) => (
-                <React.Fragment key={item.title}>
-                  {item.title === "Macroeconomics" ? (
-                    <MacroeconomicsSidebarItem isActive={isActive} />
-                  ) : (
-                    <SidebarMenuItem>
-                      <SidebarMenuButton
-                        tooltip={item.title}
-                        isActive={isActive(item.url, item.exact)}
-                        render={<Link href={item.url} />}
-                      >
-                        <ColoredNavIcon icon={item.icon} color={item.iconColor} />
-                        <span>{item.title}</span>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  )}
-                </React.Fragment>
+                <SidebarMenuItem key={item.title}>
+                  <SidebarMenuButton
+                    tooltip={item.title}
+                    isActive={isActive(item.url, item.exact)}
+                    render={<Link href={item.url} />}
+                  >
+                    <ColoredNavIcon icon={item.icon} color={item.iconColor} />
+                    <span>{item.title}</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
               ))}
             </SidebarMenu>
           </SidebarGroupContent>
