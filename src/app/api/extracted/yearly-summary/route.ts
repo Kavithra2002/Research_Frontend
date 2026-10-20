@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
     searchParams.get("statementKey") ??
     "income_statement";
   const period = searchParams.get("period") ?? "Annual";
-  const from = searchParams.get("from") ?? "2017";
+  const from = searchParams.get("from") ?? "2016";
   const to = searchParams.get("to") ?? "2025";
 
   if (!company) {
