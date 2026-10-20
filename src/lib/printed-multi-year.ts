@@ -257,15 +257,20 @@ function resolveBodyPrefix(
   let prefix = model.prefix;
   // Header claims a Note column but body put the first amount at index 1 —
   // common for note tables (Group/Company × current+prior with no note col).
+  // Never treat blank cells or note refs (e.g. "5") as amounts — that drops
+  // the Note column when switching Group → Company.
   if (prefix >= 2) {
     const sample = rows
       .map((row) => (row.cells ?? []).map((cell) => String(cell ?? "").trim()))
       .filter((cells) => cells[0] && !labelLooksLikeAmount(cells[0]))
       .slice(0, 12);
     if (sample.length >= 3) {
-      const amountAt1 = sample.filter((cells) =>
-        labelLooksLikeAmount(cells[1] ?? ""),
-      ).length;
+      const amountAt1 = sample.filter((cells) => {
+        const cell = cells[1] ?? "";
+        if (!cell) return false;
+        if (noteToken(cell)) return false;
+        return labelLooksLikeAmount(cell);
+      }).length;
       if (amountAt1 >= Math.ceil(sample.length * 0.5)) {
         prefix = 1;
       }
@@ -607,6 +612,134 @@ function collectEntities(reports: PrintedPack[], statementKey: string): string[]
   return entities;
 }
 
+/**
+ * DB layout for Group and Company (same shape):
+ *
+ *                    |  2025
+ * Description | Note | value
+ */
+function etFaithfulTable(
+  table: PrintedTable,
+  panel: "group" | "company",
+  reportYear: number,
+): PrintedTable {
+  const headerRows = (table.header_rows ?? []).map((row) =>
+    row.map((cell) => String(cell ?? "")),
+  );
+  const rows = table.rows ?? [];
+  if (headerRows.length === 0) return table;
+
+  const model = headerModel(headerRows);
+  const prefix = Math.max(model.prefix, table.note_column != null ? 2 : model.prefix);
+  const hasNote = prefix >= 2 || table.note_column === 1;
+
+  const entitySlots = model.slots
+    .map((slot, index) => ({ slot, index }))
+    .filter(({ slot }) => {
+      const isGroup = /^group$/i.test(slot.entity);
+      return panel === "group" ? isGroup : !isGroup;
+    });
+
+  // Prefer this report's year for the selected entity; else newest year slot.
+  let chosen =
+    entitySlots.find(
+      ({ slot }) => slot.kind === "year" && slot.year === reportYear,
+    ) ?? null;
+  if (!chosen) {
+    const yearSlots = entitySlots
+      .filter(({ slot }) => slot.kind === "year" && slot.year != null)
+      .sort((a, b) => (b.slot.year ?? 0) - (a.slot.year ?? 0));
+    chosen = yearSlots[0] ?? null;
+  }
+
+  const entityName =
+    chosen?.slot.entity ||
+    (panel === "group" ? "Group" : "Company");
+  const yearLabel = chosen?.slot.year ?? reportYear;
+  const amountCol =
+    chosen != null ? prefix + chosen.index : prefix;
+
+  // Unit from original LKR row when present.
+  const unitRow = headerRows.find((row) =>
+    row.some((cell) => /^lkr$/i.test(String(cell).trim())),
+  );
+  const unitText =
+    (unitRow && (unitRow[amountCol] || unitRow.find((c) => /^lkr$/i.test(c)))) ||
+    table.unit ||
+    "LKR";
+
+  const nextHeaders: string[][] = hasNote
+    ? [
+        ["", "Note", entityName],
+        ["", "", String(yearLabel)],
+        ["", "", String(unitText)],
+      ]
+    : [
+        ["", entityName],
+        ["", String(yearLabel)],
+        ["", String(unitText)],
+      ];
+
+  const nextRows: PrintedRow[] = rows.map((row) => {
+    const cells = (row.cells ?? []).map((cell) => String(cell ?? ""));
+    const label = cells[0] ?? "";
+    const note =
+      noteToken(hasNote ? cells[1] ?? "" : "") ||
+      noteToken(row.note_ref) ||
+      "";
+    const amount = cells[amountCol] ?? "";
+    return {
+      ...row,
+      cells: hasNote ? [label, note, amount] : [label, amount],
+      note_ref: note || null,
+    };
+  });
+
+  return {
+    ...table,
+    header_rows: nextHeaders,
+    rows: nextRows,
+    note_column: hasNote ? 1 : null,
+    note_columns: hasNote ? [1] : undefined,
+    note_years: hasNote ? [yearLabel] : undefined,
+    year_breaks: undefined,
+  };
+}
+
+function wireEtNotes(
+  table: PrintedTable,
+  pack: PrintedPack,
+): Record<string, PrintedTable> {
+  const notes: Record<string, PrintedTable> = {};
+  const year = pack.year;
+  const rawNotes = pack.notes ?? {};
+  for (const row of table.rows ?? []) {
+    const ref =
+      noteToken(row.note_ref) ||
+      (table.note_column != null
+        ? noteToken(row.cells?.[table.note_column] ?? "")
+        : "");
+    if (!ref) {
+      row.note_ref = null;
+      continue;
+    }
+    const raw = rawNotes[ref];
+    if (!raw || !(raw.rows?.length)) {
+      // Still mark clickable; dialog can fall back.
+      row.note_ref = `${year}|${ref}`;
+      continue;
+    }
+    const key = `${year}|${ref}`;
+    notes[key] = {
+      ...raw,
+      title: raw.title || `Note ${ref}`,
+      source_notes: [{ year, ref }],
+    };
+    row.note_ref = key;
+  }
+  return notes;
+}
+
 export function mergePrintedStatements(
   reports: PrintedPack[],
   statementKey: string,
@@ -620,38 +753,29 @@ export function mergePrintedStatements(
     .sort((a, b) => a.year - b.year);
   if (ranged.length === 0) return null;
 
-  const newest = ranged[ranged.length - 1];
-  const statement = newest.statements?.find((item) => item.key === statementKey);
-  if (!statement) return null;
+  // Same table as Extracted Tables for the newest year in range — avoids the
+  // multi-year remesh that broke labels/amounts. Notes stay clickable.
+  const focus =
+    toYear != null
+      ? [...ranged].reverse().find((report) => report.year === toYear) ??
+        ranged[ranged.length - 1]
+      : ranged[ranged.length - 1];
+  const raw = focus.statements?.find((item) => item.key === statementKey);
+  if (!raw || (!(raw.rows?.length) && raw.ok === false)) return null;
 
-  const entities = collectEntities(ranged, statementKey);
-  // Multi-year grid: each report year column comes only from that year's PDF
-  // (never from a later report's comparative prior-year column).
-  const mergedSeries = mergeTableSeries(
-    ranged.map((report) => ({
-      year: report.year,
-      table: report.statements?.find((item) => item.key === statementKey),
-    })),
-    panel,
-    entities,
-    undefined,
-    { includeComparativeYears: false },
-  );
-  if (!mergedSeries) return null;
-  mergedSeries.table.unit = mergedSeries.table.unit || newest.unit || "";
-
-  const reportsByYear = new Map(ranged.map((report) => [report.year, report]));
-  const extractedYears = new Set(ranged.map((report) => report.year));
-  const notes: Record<string, PrintedTable> = {};
-  registerLineNotes(notes, "", mergedSeries, reportsByYear, extractedYears, entities, panel, 0);
+  const table = etFaithfulTable(raw, panel, focus.year);
+  table.unit = table.unit || focus.unit || "";
+  table.title = table.title || raw.title;
+  const notes = wireEtNotes(table, focus);
+  const entities = collectEntities([focus], statementKey);
 
   return {
-    table: mergedSeries.table,
+    table,
     notes,
-    years: ranged.map((report) => report.year).sort((a, b) => b - a),
+    years: [focus.year],
     entities,
-    companyName: newest.company_name || newest.company_slug,
-    unit: mergedSeries.table.unit || newest.unit || "",
+    companyName: focus.company_name || focus.company_slug,
+    unit: table.unit || focus.unit || "",
   };
 }
 
