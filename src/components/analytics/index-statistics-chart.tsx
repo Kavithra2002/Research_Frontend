@@ -24,6 +24,7 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { WARMUP_SNAPSHOT_HEADER } from "@/lib/warmup-data";
 import type { ChartPeriod } from "@/app/api/analytics/index-chart/route";
 
 export type LivePoint = { time: number; value: number };
@@ -153,6 +154,7 @@ export function IndexStatisticsChart({
   liveValue,
   liveChangePct,
   marketOpen,
+  refreshKey = 0,
   onRefresh,
   refreshing,
 }: {
@@ -163,6 +165,8 @@ export function IndexStatisticsChart({
   liveValue: number | null;
   liveChangePct?: number | null;
   marketOpen: boolean;
+  /** Bumps when parent live feed refreshes so charts re-fetch even if value is unchanged. */
+  refreshKey?: number;
   onRefresh?: () => void;
   refreshing?: boolean;
 }) {
@@ -186,6 +190,8 @@ export function IndexStatisticsChart({
   const seriesRef = React.useRef<ISeriesApi<"Area"> | null>(null);
   const didFitRef = React.useRef(false);
   const periodRef = React.useRef<ChartPeriod>("1");
+  const hasPointsRef = React.useRef(false);
+  const loadedPeriodRef = React.useRef<ChartPeriod | null>(null);
 
   const displayValue = liveValue ?? points.at(-1)?.value ?? null;
   const changePct =
@@ -195,7 +201,10 @@ export function IndexStatisticsChart({
   const lineColor = flat ? UP_COLOR : up ? UP_COLOR : DOWN_COLOR;
 
   const loadChart = React.useCallback(async () => {
-    setLoading(true);
+    const periodSwitch =
+      loadedPeriodRef.current != null && loadedPeriodRef.current !== period;
+    const showSpinner = !hasPointsRef.current || periodSwitch;
+    if (showSpinner) setLoading(true);
     setError(null);
     try {
       const qs = new URLSearchParams({
@@ -205,6 +214,7 @@ export function IndexStatisticsChart({
       if (liveValue != null) qs.set("liveValue", String(liveValue));
       const res = await fetch(`/api/analytics/index-chart?${qs.toString()}`, {
         cache: "no-store",
+        headers: { [WARMUP_SNAPSHOT_HEADER]: "1" },
       });
       if (!res.ok) throw new Error("Failed to load chart");
       const json = (await res.json()) as {
@@ -214,18 +224,22 @@ export function IndexStatisticsChart({
         error?: string;
       };
       if (json.error) throw new Error(json.error);
-      setPoints(json.points ?? []);
+      const nextPoints = json.points ?? [];
+      setPoints(nextPoints);
+      hasPointsRef.current = nextPoints.length > 0;
+      loadedPeriodRef.current = period;
       setPeriodChangePct(json.periodChangePct ?? null);
       if (json.returns) setYearReturns(json.returns);
       didFitRef.current = false;
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load chart");
       setPoints([]);
+      hasPointsRef.current = false;
       setPeriodChangePct(null);
     } finally {
-      setLoading(false);
+      if (showSpinner) setLoading(false);
     }
-  }, [chartId, period, liveValue]);
+  }, [chartId, period, liveValue, refreshKey]);
 
   React.useEffect(() => {
     void loadChart();
