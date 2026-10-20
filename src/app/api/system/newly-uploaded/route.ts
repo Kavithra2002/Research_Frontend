@@ -47,11 +47,16 @@ const itemSchema = {
   },
 };
 
+/** Primary local/R2 folder for System CSE scan downloads. */
+const PRIMARY_ROOT = "newly_uploaded_report" as const;
+/** Older R2/local prefix — still listed for existing files. */
+const LEGACY_ROOT = "updated_reports" as const;
+
 async function deleteReportFile(item: SelectionItem): Promise<boolean> {
   const { company, report_type, file_name } = item;
 
-  let stat = await statFile(UPDATED_REPORTS_ROOT, company, report_type, file_name);
-  let root: typeof UPDATED_REPORTS_ROOT | typeof LEGACY_ROOT = UPDATED_REPORTS_ROOT;
+  let stat = await statFile(PRIMARY_ROOT, company, report_type, file_name);
+  let root: typeof PRIMARY_ROOT | typeof LEGACY_ROOT = PRIMARY_ROOT;
   if (!stat) {
     stat = await statFile(LEGACY_ROOT, company, report_type, file_name);
     root = LEGACY_ROOT;
@@ -75,11 +80,6 @@ export type DeleteReportsResponse = {
   error?: string;
 };
 
-/** Primary R2/local prefix for newly scanned reports. */
-const UPDATED_REPORTS_ROOT = "updated_reports" as const;
-/** Legacy prefix (local dev / older uploads). */
-const LEGACY_ROOT = "newly_uploaded_report" as const;
-
 const ALLOWED_EXTENSIONS = new Set([".pdf"]);
 
 function naturalCompare(a: string, b: string) {
@@ -87,7 +87,7 @@ function naturalCompare(a: string, b: string) {
 }
 
 async function listFromRoot(
-  root: typeof UPDATED_REPORTS_ROOT | typeof LEGACY_ROOT,
+  root: typeof PRIMARY_ROOT | typeof LEGACY_ROOT,
 ): Promise<UploadedReport[]> {
   const reports: UploadedReport[] = [];
   const companyLevel = await listDirectory(root);
@@ -156,15 +156,15 @@ function mergeReports(
 
 export async function GET() {
   try {
-    const [updated, legacy] = await Promise.all([
-      listFromRoot(UPDATED_REPORTS_ROOT),
+    const [primary, legacy] = await Promise.all([
+      listFromRoot(PRIMARY_ROOT),
       listFromRoot(LEGACY_ROOT),
     ]);
-    const reports = mergeReports(updated, legacy);
+    const reports = mergeReports(primary, legacy);
 
     const root = isR2Storage()
-      ? `r2://${process.env.R2_BUCKET}/${UPDATED_REPORTS_ROOT}`
-      : getLocalRoot(UPDATED_REPORTS_ROOT);
+      ? `r2://${process.env.R2_BUCKET}/${PRIMARY_ROOT}`
+      : getLocalRoot(PRIMARY_ROOT);
 
     return NextResponse.json({ root, reports });
   } catch (error) {
@@ -196,8 +196,18 @@ export async function DELETE(request: NextRequest) {
 
     for (const item of items) {
       const stat =
-        (await statFile(UPDATED_REPORTS_ROOT, item.company, item.report_type, item.file_name)) ??
-        (await statFile(LEGACY_ROOT, item.company, item.report_type, item.file_name));
+        (await statFile(
+          PRIMARY_ROOT,
+          item.company,
+          item.report_type,
+          item.file_name,
+        )) ??
+        (await statFile(
+          LEGACY_ROOT,
+          item.company,
+          item.report_type,
+          item.file_name,
+        ));
       if (!stat) {
         notFound += 1;
         continue;

@@ -507,7 +507,7 @@ export function NewlyUpdatedPanel() {
                 Scan the CSE listing for reports uploaded today and download
                 any new annual, quarterly or other filings into{" "}
                 <code className="rounded bg-muted px-1 py-0.5 text-[11px]">
-                  updated_reports/
+                  newly_uploaded_report/
                 </code>
                 . The scan keeps running in the background even if you leave
                 this page.
@@ -795,7 +795,7 @@ export function NewlyUpdatedPanel() {
               This will permanently remove the {selectedCount} selected report
               {selectedCount === 1 ? "" : "s"} from{" "}
               <code className="rounded bg-muted px-1 py-0.5 text-[11px]">
-                updated_reports/
+                newly_uploaded_report/
               </code>
               . This action cannot be undone.
             </DialogDescription>
