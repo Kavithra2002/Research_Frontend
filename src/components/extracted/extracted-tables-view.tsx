@@ -1,15 +1,37 @@
 "use client";
 
 import * as React from "react";
-import { AlertCircle, FileWarning, TableProperties } from "lucide-react";
+import {
+  AlertCircle,
+  Download,
+  FileSpreadsheet,
+  FileText,
+  FileWarning,
+  TableProperties,
+} from "lucide-react";
 
 import { StatementTypePills } from "@/components/ai/statement-type-pills";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  downloadExtractedTablesCsv,
+  downloadExtractedTablesPdf,
+  type ExtractedExportMeta,
+} from "@/lib/extracted-tables-export";
 import { cn } from "@/lib/utils";
 import {
   STMT_ORDER,
   statementLabel,
 } from "@/lib/statement-types";
+
+export type { ExtractedExportMeta };
 
 export type ExtractedRow = {
   cells: string[];
@@ -46,6 +68,86 @@ function isNumberCell(value: string) {
   if (!trimmed) return false;
   if (trimmed === "-" || trimmed === "—" || trimmed === "–") return true;
   return NUMBER_RE.test(trimmed);
+}
+
+function cellYear(value: string): number | null {
+  const match = String(value ?? "")
+    .trim()
+    .match(/\b(20\d{2})\b/);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const max = new Date().getFullYear() + 1;
+  if (year < 1990 || year > max) return null;
+  return year;
+}
+
+/**
+ * Keep label/note prefix columns plus amount columns for `reportYear` only
+ * (drops comparative prior-year Group/Company columns).
+ */
+export function filterExtractedTableToYear(
+  table: ExtractedTable,
+  reportYear: number,
+): ExtractedTable {
+  const headerRows = (table.header_rows ?? []).map((row) =>
+    row.map((cell) => String(cell ?? "")),
+  );
+  const rows = table.rows ?? [];
+  if (headerRows.length === 0) return table;
+
+  const colCount = Math.max(
+    ...headerRows.map((r) => r.length),
+    ...rows.map((r) => r.cells?.length ?? 0),
+    1,
+  );
+
+  const years: (number | null)[] = Array.from({ length: colCount }, (_, ci) => {
+    for (const row of headerRows) {
+      const year = cellYear(row[ci] ?? "");
+      if (year != null) return year;
+    }
+    return null;
+  });
+
+  const firstYearCol = years.findIndex((y) => y != null);
+  if (firstYearCol === -1) return table;
+
+  const keep = years.map((year, ci) => {
+    if (ci < firstYearCol) return true;
+    return year === reportYear;
+  });
+
+  if (keep.every(Boolean)) return table;
+
+  const filterCells = (cells: string[]) =>
+    Array.from({ length: colCount }, (_, ci) => cells[ci] ?? "").filter(
+      (_, ci) => keep[ci],
+    );
+
+  return {
+    ...table,
+    header_rows: headerRows.map(filterCells),
+    rows: rows.map((row) => ({
+      ...row,
+      cells: filterCells((row.cells ?? []).map((c) => String(c ?? ""))),
+    })),
+  };
+}
+
+export function filterStatementToYear(
+  statement: ExtractedStatement,
+  reportYear: number,
+): ExtractedStatement {
+  if (!statement.data?.tables?.length) return statement;
+  return {
+    ...statement,
+    data: {
+      ...statement.data,
+      tables: statement.data.tables.map((table) =>
+        filterExtractedTableToYear(table, reportYear),
+      ),
+    },
+  };
 }
 
 export function statementsFromResults(
@@ -178,7 +280,7 @@ export function StatementBlock({
   );
 }
 
-function FinancialTable({ table }: { table: ExtractedTable }) {
+export function FinancialTable({ table }: { table: ExtractedTable }) {
   const headerRows = table.header_rows ?? [];
   const rows = table.rows ?? [];
   const colCount = Math.max(
@@ -243,6 +345,8 @@ function FinancialTable({ table }: { table: ExtractedTable }) {
               const isSection = style === "section";
               const isSubtotal = style === "subtotal";
               const isTotal = style === "total";
+              const isHighlight = style === "highlight";
+              const isHighlightSection = style === "highlight-section";
 
               if (isBlank) {
                 return (
@@ -262,14 +366,23 @@ function FinancialTable({ table }: { table: ExtractedTable }) {
                   className={cn(
                     "border-b last:border-b-0 transition-colors",
                     isSection &&
+                      !isHighlightSection &&
                       "bg-muted/40 font-semibold uppercase tracking-wide text-foreground",
+                    isHighlightSection &&
+                      "bg-amber-500/20 font-semibold tracking-wide text-amber-950 dark:bg-amber-400/20 dark:text-amber-50",
+                    isHighlight &&
+                      "bg-amber-500/10 text-foreground dark:bg-amber-400/15",
                     isSubtotal &&
+                      !isHighlight &&
                       "bg-muted/20 font-medium text-foreground",
                     isTotal &&
+                      !isHighlight &&
                       "bg-primary/5 font-bold text-foreground border-y border-primary/30",
                     !isSection &&
                       !isSubtotal &&
                       !isTotal &&
+                      !isHighlight &&
+                      !isHighlightSection &&
                       "hover:bg-muted/30",
                   )}
                 >
@@ -289,7 +402,9 @@ function FinancialTable({ table }: { table: ExtractedTable }) {
                             : "text-right whitespace-nowrap",
                           isNegative &&
                             "text-rose-600 dark:text-rose-300",
-                          isSection && isFirst && "text-[11px]",
+                          (isSection || isHighlightSection) &&
+                            isFirst &&
+                            "text-[11px]",
                         )}
                       >
                         {value}
@@ -313,6 +428,7 @@ export function ExtractedTablesView({
   emptyMessage,
   stickyTopClassName = "top-[6.25rem]",
   pillsSticky = true,
+  exportMeta,
 }: {
   statements: ExtractedStatement[];
   loading?: boolean;
@@ -324,6 +440,8 @@ export function ExtractedTablesView({
    *  inside a self-scrolling container where the table header is sticky too,
    *  so the two sticky bars don't overlap. */
   pillsSticky?: boolean;
+  /** Company / period labels used in downloaded PDF / Excel filenames. */
+  exportMeta?: ExtractedExportMeta | null;
 }) {
   const [selectedKey, setSelectedKey] = React.useState<string | null>(null);
 
@@ -336,6 +454,25 @@ export function ExtractedTablesView({
       setSelectedKey(statements[0].key);
     }
   }, [statements, selectedKey]);
+
+  const canDownload = React.useMemo(
+    () =>
+      statements.some(
+        (s) =>
+          s.status !== "error" && (s.data?.tables?.length ?? 0) > 0,
+      ),
+    [statements],
+  );
+
+  const resolvedMeta: ExtractedExportMeta = React.useMemo(
+    () => ({
+      companyName: exportMeta?.companyName?.trim() || "extracted",
+      year: exportMeta?.year ?? null,
+      period: exportMeta?.period ?? null,
+      quarter: exportMeta?.quarter ?? null,
+    }),
+    [exportMeta],
+  );
 
   if (loading) {
     return (
@@ -389,17 +526,61 @@ export function ExtractedTablesView({
           pillsSticky && stickyTopClassName,
         )}
       >
-        <StatementTypePills
-          items={statements.map((statement) => ({
-            key: statement.key,
-            title: statement.title,
-            tableCount: statement.data?.tables?.length ?? 0,
-            hasError:
-              statement.status === "error" || Boolean(statement.error),
-          }))}
-          selectedKey={selected.key}
-          onSelect={setSelectedKey}
-        />
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="min-w-0 flex-1">
+            <StatementTypePills
+              items={statements.map((statement) => ({
+                key: statement.key,
+                title: statement.title,
+                tableCount: statement.data?.tables?.length ?? 0,
+                hasError:
+                  statement.status === "error" || Boolean(statement.error),
+              }))}
+              selectedKey={selected.key}
+              onSelect={setSelectedKey}
+            />
+          </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 shrink-0 gap-1.5"
+                  disabled={!canDownload}
+                  aria-label="Download data"
+                  title="Download data"
+                />
+              }
+            >
+              <Download className="size-3.5" />
+              <span className="hidden sm:inline">Download</span>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-40">
+              <DropdownMenuGroup>
+                <DropdownMenuItem
+                  disabled={!canDownload}
+                  onClick={() =>
+                    downloadExtractedTablesPdf(statements, resolvedMeta)
+                  }
+                >
+                  <FileText className="size-4" />
+                  PDF
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={!canDownload}
+                  onClick={() =>
+                    downloadExtractedTablesCsv(statements, resolvedMeta)
+                  }
+                >
+                  <FileSpreadsheet className="size-4" />
+                  CSV
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
 
       <div className="flex min-w-0 flex-col">

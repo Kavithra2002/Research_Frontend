@@ -400,6 +400,12 @@ export function DbViewerPanel() {
                   error={dataError}
                   emptyMessage="No tables stored for this report."
                   pillsSticky={false}
+                  exportMeta={{
+                    companyName: selection.displayName,
+                    year: selection.report.year,
+                    period: selection.report.period,
+                    quarter: selection.report.quarter,
+                  }}
                 />
               </div>
             </div>
