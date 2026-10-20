@@ -449,6 +449,14 @@ export function ExtractedExplorer() {
     return [...keys];
   }, [company]);
 
+  const summaryYears = React.useMemo(() => {
+    if (!company?.years?.length) return [];
+    return company.years
+      .filter((y) => (y.annual?.statementCount ?? 0) > 0 || (y.annual?.statements?.length ?? 0) > 0)
+      .map((y) => y.year)
+      .sort((a, b) => b - a);
+  }, [company]);
+
   return (
     <div className="flex min-w-0 flex-col gap-2">
       <div className="flex items-center gap-1 rounded-xl border bg-card px-2 py-1 shadow-sm ring-1 ring-foreground/10">
@@ -472,11 +480,11 @@ export function ExtractedExplorer() {
           aria-pressed={viewMode === "summary"}
         >
           <LayoutGrid className="size-3.5" />
-          Summary
+          Listed
         </Button>
         {viewMode === "summary" ? (
           <span className="ml-2 hidden text-[11px] text-muted-foreground sm:inline">
-            Annual figures 2017–2025 in one table
+            Group figures by year in one table
           </span>
         ) : null}
       </div>
@@ -799,6 +807,7 @@ export function ExtractedExplorer() {
               company={selectedCompany}
               companyDisplayName={company.displayName}
               availableStatements={summaryStatements}
+              years={summaryYears}
               loadingCompanies={loading}
             />
           </CardContent>
@@ -809,6 +818,12 @@ export function ExtractedExplorer() {
               loading={dataLoading}
               error={dataError}
               emptyMessage="No extracted JSON statements found for this company."
+              exportMeta={{
+                companyName: company.displayName,
+                year: selectedYear,
+                period,
+                quarter: period === "Quarterly" ? selectedQuarter : null,
+              }}
             />
           </CardContent>
         )}
