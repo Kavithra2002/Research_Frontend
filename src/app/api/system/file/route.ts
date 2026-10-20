@@ -6,8 +6,8 @@ import { isSafeSegment, readBytes, statFile } from "@/lib/storage";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-const UPDATED_REPORTS_ROOT = "updated_reports" as const;
-const LEGACY_ROOT = "newly_uploaded_report" as const;
+const PRIMARY_ROOT = "newly_uploaded_report" as const;
+const LEGACY_ROOT = "updated_reports" as const;
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -38,9 +38,8 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  let stat = await statFile(UPDATED_REPORTS_ROOT, company, type, file);
-  let root: typeof UPDATED_REPORTS_ROOT | typeof LEGACY_ROOT =
-    UPDATED_REPORTS_ROOT;
+  let stat = await statFile(PRIMARY_ROOT, company, type, file);
+  let root: typeof PRIMARY_ROOT | typeof LEGACY_ROOT = PRIMARY_ROOT;
   if (!stat) {
     stat = await statFile(LEGACY_ROOT, company, type, file);
     root = LEGACY_ROOT;
