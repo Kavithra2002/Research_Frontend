@@ -29,6 +29,11 @@ export function normalizeCapturePeriod(raw: string | null): CapturePeriod {
  * company identifier coming from the UI (which is the MongoDB slug, e.g.
  * "Ambeon_Holdings_PLC"). Returns the display-name folder ("Ambeon Holdings
  * PLC") when found, otherwise null.
+ *
+ * When both a slug folder and a display-name folder exist, prefer the one that
+ * has the demo layout (`Annual` / `Quarterly`). A bare slug folder such as
+ * `Ambeon_Holdings_PLC/2025/notes` must not shadow
+ * `Ambeon Holdings PLC/Annual/2025/...`.
  */
 export async function resolveDemoCaptureCompanyDir(
   company: string,
@@ -36,15 +41,31 @@ export async function resolveDemoCaptureCompanyDir(
   const { directories } = await listDirectory("demo_captures");
   if (directories.length === 0) return null;
 
-  // 1. Exact match (company passed as display name).
-  if (directories.includes(company)) return company;
+  const candidates: string[] = [];
 
-  // 2. Match by sanitized slug.
+  // 1. Exact match (company passed as display name or slug folder).
+  if (directories.includes(company)) candidates.push(company);
+
+  // 2. Match by sanitized slug (display-name folders).
   const target = company.toLowerCase();
   for (const dir of directories) {
-    if (sanitizeCompanyKey(dir).toLowerCase() === target) {
+    if (
+      sanitizeCompanyKey(dir).toLowerCase() === target &&
+      !candidates.includes(dir)
+    ) {
+      candidates.push(dir);
+    }
+  }
+
+  if (candidates.length === 0) return null;
+  if (candidates.length === 1) return candidates[0];
+
+  for (const dir of candidates) {
+    const { directories: children } = await listDirectory("demo_captures", dir);
+    if (children.includes("Annual") || children.includes("Quarterly")) {
       return dir;
     }
   }
-  return null;
+
+  return candidates[0];
 }
