@@ -252,73 +252,23 @@ function filterRowsByStatement(
   return out;
 }
 
-const MONTH_OPTIONS: { value: number; label: string }[] = [
-  { value: 1, label: "Jan" },
-  { value: 2, label: "Feb" },
-  { value: 3, label: "Mar" },
-  { value: 4, label: "Apr" },
-  { value: 5, label: "May" },
-  { value: 6, label: "Jun" },
-  { value: 7, label: "Jul" },
-  { value: 8, label: "Aug" },
-  { value: 9, label: "Sep" },
-  { value: 10, label: "Oct" },
-  { value: 11, label: "Nov" },
-  { value: 12, label: "Dec" },
-];
-
-function monthShort(month: number | null): string {
-  if (month == null) return "";
-  return MONTH_OPTIONS.find((m) => m.value === month)?.label ?? "";
-}
-
-function daysInMonth(year: number, month: number): number {
-  return new Date(year, month, 0).getDate();
-}
-
-function dayOptions(year: number | null, month: number | null): number[] {
-  if (year == null || month == null) return [];
-  const count = daysInMonth(year, month);
-  return Array.from({ length: count }, (_, i) => i + 1);
-}
-
-function clampDay(
-  day: number | null,
-  year: number | null,
-  month: number | null,
-): number | null {
-  if (day == null || year == null || month == null) return null;
-  return Math.min(day, daysInMonth(year, month));
-}
-
-function formatDatePart(
-  year: number | null,
-  month: number | null,
-  day: number | null,
-): string | null {
-  if (year == null) return null;
-  if (month != null && day != null) {
-    return `${day} ${monthShort(month)} ${year}`;
-  }
-  if (month != null) return `${monthShort(month)} ${year}`;
-  return String(year);
-}
-
 function formatYearRangeLabel(
   fromYear: number | null,
   toYear: number | null,
-  fromMonth: number | null = null,
-  toMonth: number | null = null,
-  fromDay: number | null = null,
-  toDay: number | null = null,
 ): string {
   if (fromYear == null && toYear == null) return "Year range";
-  const fromPart = formatDatePart(fromYear, fromMonth, fromDay);
-  const toPart = formatDatePart(toYear, toMonth, toDay);
-  if (fromPart && toPart) {
-    return fromPart === toPart ? fromPart : `${fromPart} – ${toPart}`;
+  if (fromYear != null && toYear != null) {
+    return fromYear === toYear ? String(fromYear) : `${fromYear} – ${toYear}`;
   }
-  return `${fromPart ?? toPart} – …`;
+  return `${fromYear ?? toYear} – …`;
+}
+
+function columnYear(label: string, key: string): number | null {
+  const end = parseColumnEndDate(label, key);
+  if (end) return end.getFullYear();
+  const match = String(key).match(/^(\d{4})/);
+  if (match) return Number(match[1]);
+  return null;
 }
 
 function filterColumns(args: {
@@ -327,22 +277,8 @@ function filterColumns(args: {
   period: PeriodType;
   fromYear: number | null;
   toYear: number | null;
-  fromMonth: number | null;
-  toMonth: number | null;
-  fromDay: number | null;
-  toDay: number | null;
 }): { labels: string[]; keys: string[] } {
-  const {
-    labels,
-    keys,
-    period,
-    fromYear,
-    toYear,
-    fromMonth,
-    toMonth,
-    fromDay,
-    toDay,
-  } = args;
+  const { labels, keys, period, fromYear, toYear } = args;
   let nextLabels = [...labels];
   let nextKeys = [...keys];
 
@@ -389,35 +325,18 @@ function filterColumns(args: {
   }
 
   if (fromYear != null || toYear != null) {
-    const from =
-      fromYear != null
-        ? new Date(
-            fromYear,
-            (fromMonth ?? 1) - 1,
-            fromMonth != null ? (fromDay ?? 1) : 1,
-          )
-        : null;
-    const toYearResolved = toYear ?? fromYear;
-    let to: Date | null = null;
-    if (toYearResolved != null) {
-      if (toMonth != null) {
-        const day =
-          toDay ?? daysInMonth(toYearResolved, toMonth);
-        to = new Date(toYearResolved, toMonth - 1, day, 23, 59, 59);
-      } else {
-        to = new Date(toYearResolved, 11, 31, 23, 59, 59);
-      }
-    }
+    const minYear = fromYear ?? toYear;
+    const maxYear = toYear ?? fromYear;
     const filtered: { label: string; key: string }[] = [];
     nextKeys.forEach((key, i) => {
       const label = nextLabels[i] ?? key;
-      const end = parseColumnEndDate(label, key);
-      if (!end) {
+      const year = columnYear(label, key);
+      if (year == null) {
         filtered.push({ label, key });
         return;
       }
-      if (from && end < from) return;
-      if (to && end > to) return;
+      if (minYear != null && year < minYear) return;
+      if (maxYear != null && year > maxYear) return;
       filtered.push({ label, key });
     });
     nextLabels = filtered.map((c) => c.label);
@@ -430,13 +349,26 @@ function filterColumns(args: {
 type DbTestViewProps = {
   company: string | null;
   companyDisplayName?: string;
+  /** Years present in Extracted Tables / printed packs for this company. */
+  extractedYears?: number[];
   refreshToken?: number;
   className?: string;
 };
 
+/** Inclusive year list from the earliest to latest extracted year. */
+function yearsInExtractedRange(years: number[]): number[] {
+  if (years.length === 0) return [];
+  const min = Math.min(...years);
+  const max = Math.max(...years);
+  const out: number[] = [];
+  for (let year = min; year <= max; year += 1) out.push(year);
+  return out;
+}
+
 export function DbTestView({
   company,
   companyDisplayName,
+  extractedYears = [],
   refreshToken = 0,
   className,
 }: DbTestViewProps) {
@@ -453,10 +385,6 @@ export function DbTestView({
   >([]);
   const [fromYear, setFromYear] = React.useState<number | null>(null);
   const [toYear, setToYear] = React.useState<number | null>(null);
-  const [fromMonth, setFromMonth] = React.useState<number | null>(null);
-  const [toMonth, setToMonth] = React.useState<number | null>(null);
-  const [fromDay, setFromDay] = React.useState<number | null>(null);
-  const [toDay, setToDay] = React.useState<number | null>(null);
   const [yearRangeOpen, setYearRangeOpen] = React.useState(false);
   const [amountDisplay, setAmountDisplay] =
     React.useState<DbAmountDisplay>("raw");
@@ -703,22 +631,8 @@ export function DbTestView({
         period,
         fromYear,
         toYear,
-        fromMonth,
-        toMonth,
-        fromDay,
-        toDay,
       }),
-    [
-      fromDay,
-      fromMonth,
-      fromYear,
-      period,
-      rawColumnKeys,
-      rawColumnLabels,
-      toDay,
-      toMonth,
-      toYear,
-    ],
+    [fromYear, period, rawColumnKeys, rawColumnLabels, toYear],
   );
 
   const notesYears = React.useMemo(() => {
@@ -802,20 +716,21 @@ export function DbTestView({
     preview?.view === "notes" ? (preview as DbNotesPreview) : null;
 
   const viewControlsEnabled = period === "annual";
-  const dateFilterActive =
-    fromYear != null ||
-    toYear != null ||
-    fromMonth != null ||
-    toMonth != null ||
-    fromDay != null ||
-    toDay != null;
+  const dateFilterActive = fromYear != null || toYear != null;
 
   const availableYears = React.useMemo(() => {
-    const years = [...rawColumnKeys.map((key) => key), ...printedYears.map(String)]
+    const fromPreview = rawColumnKeys
       .map((key) => Number(String(key).match(/^(\d{4})/)?.[1] ?? Number.NaN))
       .filter((year) => Number.isFinite(year));
-    return [...new Set(years)].sort((a, b) => a - b);
-  }, [printedYears, rawColumnKeys]);
+    // Prefer extracted / printed years so the Year picker only offers the
+    // company's real range (e.g. 2018–2025), not a fixed calendar list.
+    const source = [
+      ...extractedYears,
+      ...printedYears,
+      ...fromPreview,
+    ].filter((year) => Number.isFinite(year));
+    return yearsInExtractedRange([...new Set(source)]);
+  }, [extractedYears, printedYears, rawColumnKeys]);
 
   const handlePrintedYears = React.useCallback((years: number[]) => {
     setPrintedYears((prev) => (prev.join("|") === years.join("|") ? prev : years));
@@ -869,71 +784,56 @@ export function DbTestView({
     }
   }, [availableStatementOptions, statement]);
 
-  // Reset printed availability when the company changes.
+  // Reset printed availability and date filter when the company changes.
   React.useEffect(() => {
     setPrintedStatementKeys([]);
     setPrintedYears([]);
     setPrintedEntities([]);
+    setFromYear(null);
+    setToYear(null);
+    setYearRangeOpen(false);
   }, [company]);
-
-  const fromDayOptions = dayOptions(fromYear, fromMonth);
-  const toDayOptions = dayOptions(toYear, toMonth);
 
   const clearYearRange = React.useCallback(() => {
     setFromYear(null);
     setToYear(null);
-    setFromMonth(null);
-    setToMonth(null);
-    setFromDay(null);
-    setToDay(null);
     setYearRangeOpen(false);
   }, []);
 
+  // Drop From/To years that fall outside the company's extracted range.
+  React.useEffect(() => {
+    if (availableYears.length === 0) {
+      if (fromYear != null || toYear != null) {
+        setFromYear(null);
+        setToYear(null);
+      }
+      return;
+    }
+    const min = availableYears[0]!;
+    const max = availableYears[availableYears.length - 1]!;
+    if (fromYear != null && (fromYear < min || fromYear > max)) {
+      setFromYear(null);
+    }
+    if (toYear != null && (toYear < min || toYear > max)) {
+      setToYear(null);
+    }
+  }, [availableYears, fromYear, toYear]);
+
   const updateFromYear = React.useCallback((year: number | null) => {
     setFromYear(year);
-    if (year == null) {
-      setFromMonth(null);
-      setFromDay(null);
-    } else {
-      setFromDay((d) => clampDay(d, year, fromMonth));
-    }
     setToYear((currentTo) => {
       if (year == null || currentTo == null) return currentTo;
       return currentTo < year ? year : currentTo;
     });
-  }, [fromMonth]);
+  }, []);
 
   const updateToYear = React.useCallback((year: number | null) => {
     setToYear(year);
-    if (year == null) {
-      setToMonth(null);
-      setToDay(null);
-    } else {
-      setToDay((d) => clampDay(d, year, toMonth));
-    }
     setFromYear((currentFrom) => {
       if (year == null || currentFrom == null) return currentFrom;
       return currentFrom > year ? year : currentFrom;
     });
-  }, [toMonth]);
-
-  const updateFromMonth = React.useCallback((month: number | null) => {
-    setFromMonth(month);
-    if (month == null) {
-      setFromDay(null);
-    } else {
-      setFromDay((d) => clampDay(d, fromYear, month));
-    }
-  }, [fromYear]);
-
-  const updateToMonth = React.useCallback((month: number | null) => {
-    setToMonth(month);
-    if (month == null) {
-      setToDay(null);
-    } else {
-      setToDay((d) => clampDay(d, toYear, month));
-    }
-  }, [toYear]);
+  }, []);
 
   const selectStatement = React.useCallback((id: StatementType) => {
     // Switch between captured statement tables (clicking active keeps it).
@@ -1069,118 +969,57 @@ export function DbTestView({
                         >
                           <CalendarIcon className="size-3.5 shrink-0" />
                           <span className="max-w-[14rem] truncate">
-                            {formatYearRangeLabel(
-                              fromYear,
-                              toYear,
-                              fromMonth,
-                              toMonth,
-                              fromDay,
-                              toDay,
-                            )}
+                            {formatYearRangeLabel(fromYear, toYear)}
                           </span>
                         </PopoverTrigger>
                         <PopoverContent
                           align="start"
-                          className="w-80 overflow-visible p-3"
+                          className="w-64 overflow-visible p-3"
                         >
                           <div className="flex flex-col gap-3">
                             <div className="grid grid-cols-2 gap-3">
-                              <div className="flex flex-col gap-2">
+                              <label className="flex flex-col gap-1">
                                 <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                                  From
+                                  From year
                                 </span>
-                                <label className="flex flex-col gap-1">
-                                  <span className="text-[10px] text-muted-foreground">
-                                    Year
-                                  </span>
-                                  <DateCompactSelect
-                                    value={fromYear}
-                                    options={availableYears.map((year) => ({
-                                      value: year,
-                                      label: String(year),
-                                    }))}
-                                    onChange={updateFromYear}
-                                    aria-label="From year"
-                                  />
-                                </label>
-                                <label className="flex flex-col gap-1">
-                                  <span className="text-[10px] text-muted-foreground">
-                                    Month
-                                  </span>
-                                  <DateCompactSelect
-                                    value={fromMonth}
-                                    options={MONTH_OPTIONS}
-                                    disabled={fromYear == null}
-                                    onChange={updateFromMonth}
-                                    aria-label="From month"
-                                  />
-                                </label>
-                                <label className="flex flex-col gap-1">
-                                  <span className="text-[10px] text-muted-foreground">
-                                    Day
-                                  </span>
-                                  <DateCompactSelect
-                                    value={fromDay}
-                                    options={fromDayOptions.map((d) => ({
-                                      value: d,
-                                      label: String(d),
-                                    }))}
-                                    disabled={fromMonth == null}
-                                    onChange={setFromDay}
-                                    aria-label="From day"
-                                  />
-                                </label>
-                              </div>
-                              <div className="flex flex-col gap-2">
+                                <DateCompactSelect
+                                  value={fromYear}
+                                  options={availableYears.map((year) => ({
+                                    value: year,
+                                    label: String(year),
+                                  }))}
+                                  onChange={updateFromYear}
+                                  listClassName="max-h-48"
+                                  emptyLabel={
+                                    availableYears.length ? "Any" : "No years"
+                                  }
+                                  aria-label="From year"
+                                />
+                              </label>
+                              <label className="flex flex-col gap-1">
                                 <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                                  To
+                                  To year
                                 </span>
-                                <label className="flex flex-col gap-1">
-                                  <span className="text-[10px] text-muted-foreground">
-                                    Year
-                                  </span>
-                                  <DateCompactSelect
-                                    value={toYear}
-                                    options={availableYears.map((year) => ({
-                                      value: year,
-                                      label: String(year),
-                                    }))}
-                                    onChange={updateToYear}
-                                    aria-label="To year"
-                                  />
-                                </label>
-                                <label className="flex flex-col gap-1">
-                                  <span className="text-[10px] text-muted-foreground">
-                                    Month
-                                  </span>
-                                  <DateCompactSelect
-                                    value={toMonth}
-                                    options={MONTH_OPTIONS}
-                                    disabled={toYear == null}
-                                    onChange={updateToMonth}
-                                    aria-label="To month"
-                                  />
-                                </label>
-                                <label className="flex flex-col gap-1">
-                                  <span className="text-[10px] text-muted-foreground">
-                                    Day
-                                  </span>
-                                  <DateCompactSelect
-                                    value={toDay}
-                                    options={toDayOptions.map((d) => ({
-                                      value: d,
-                                      label: String(d),
-                                    }))}
-                                    disabled={toMonth == null}
-                                    onChange={setToDay}
-                                    aria-label="To day"
-                                  />
-                                </label>
-                              </div>
+                                <DateCompactSelect
+                                  value={toYear}
+                                  options={availableYears.map((year) => ({
+                                    value: year,
+                                    label: String(year),
+                                  }))}
+                                  onChange={updateToYear}
+                                  listClassName="max-h-48"
+                                  emptyLabel={
+                                    availableYears.length ? "Any" : "No years"
+                                  }
+                                  aria-label="To year"
+                                />
+                              </label>
                             </div>
                             <div className="flex items-center justify-between gap-2">
                               <p className="text-[10px] text-muted-foreground">
-                                Pick year, then month, then day
+                                {availableYears.length
+                                  ? `Years ${availableYears[0]}–${availableYears[availableYears.length - 1]} from extracted data`
+                                  : "No extracted years for this company yet"}
                               </p>
                               <Button
                                 type="button"

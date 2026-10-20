@@ -16,6 +16,8 @@ type DateCompactSelectProps = {
   onChange: (value: number | null) => void;
   disabled?: boolean;
   emptyLabel?: string;
+  /** Extra class on the scrollable options list (e.g. taller year lists). */
+  listClassName?: string;
   "aria-label"?: string;
   className?: string;
 };
@@ -27,6 +29,7 @@ export function DateCompactSelect({
   onChange,
   disabled = false,
   emptyLabel = "Any",
+  listClassName,
   "aria-label": ariaLabel,
   className,
 }: DateCompactSelectProps) {
@@ -96,7 +99,10 @@ export function DateCompactSelect({
         <ul
           role="listbox"
           aria-label={ariaLabel}
-          className="absolute z-50 mt-1 max-h-[8.75rem] w-full overflow-y-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md"
+          className={cn(
+            "absolute z-50 mt-1 max-h-[8.75rem] w-full overflow-y-auto overscroll-contain rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md",
+            listClassName,
+          )}
         >
           <li role="option" aria-selected={value == null}>
             <button
@@ -112,29 +118,35 @@ export function DateCompactSelect({
               {emptyLabel}
             </button>
           </li>
-          {options.map((option) => {
-            const selected = value === option.value;
-            return (
-              <li
-                key={option.value}
-                role="option"
-                aria-selected={selected}
-              >
-                <button
-                  type="button"
-                  className={cn(
-                    "flex h-7 w-full items-center rounded-sm px-2 text-left text-xs",
-                    selected
-                      ? "bg-accent text-accent-foreground"
-                      : "hover:bg-muted",
-                  )}
-                  onClick={() => pick(option.value)}
+          {options.length === 0 ? (
+            <li className="px-2 py-1.5 text-[10px] text-muted-foreground">
+              No extracted years
+            </li>
+          ) : (
+            options.map((option) => {
+              const selected = value === option.value;
+              return (
+                <li
+                  key={option.value}
+                  role="option"
+                  aria-selected={selected}
                 >
-                  {option.label}
-                </button>
-              </li>
-            );
-          })}
+                  <button
+                    type="button"
+                    className={cn(
+                      "flex h-7 w-full items-center rounded-sm px-2 text-left text-xs",
+                      selected
+                        ? "bg-accent text-accent-foreground"
+                        : "hover:bg-muted",
+                    )}
+                    onClick={() => pick(option.value)}
+                  >
+                    {option.label}
+                  </button>
+                </li>
+              );
+            })
+          )}
         </ul>
       ) : null}
     </div>
