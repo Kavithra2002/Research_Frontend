@@ -34,7 +34,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { peekWarmupJson } from "@/lib/warmup-data";
+import { peekWarmupJson, WARMUP_SNAPSHOT_HEADER } from "@/lib/warmup-data";
 import {
   loadWatchlists,
   makeWatchlistId,
@@ -877,7 +877,12 @@ export function AnalyticsExplorer() {
     if (initial && !peekWarmupJson("/api/analytics/live")) setLoading(true);
     else if (!initial) setRefreshing(true);
     try {
-      const res = await fetch("/api/analytics/live", { cache: "no-store" });
+      // Bypass warmup so the first paint after boot is not yesterday's
+      // snapshot — peekWarmupJson already seeds state for instant UI.
+      const res = await fetch("/api/analytics/live", {
+        cache: "no-store",
+        headers: { [WARMUP_SNAPSHOT_HEADER]: "1" },
+      });
       const json = (await res.json()) as LivePayload;
       if (!res.ok || json.error) {
         throw new Error(json.error ?? `Request failed (${res.status})`);
@@ -1234,6 +1239,7 @@ export function AnalyticsExplorer() {
                   liveValue={data?.indices?.aspi?.value ?? null}
                   liveChangePct={data?.indices?.aspi?.percentage ?? null}
                   marketOpen={marketOpen}
+                  refreshKey={updatedAt?.getTime() ?? 0}
                   onRefresh={() => void load(false)}
                   refreshing={refreshing}
                 />
@@ -1245,6 +1251,7 @@ export function AnalyticsExplorer() {
                   liveValue={data?.indices?.snp?.value ?? null}
                   liveChangePct={data?.indices?.snp?.percentage ?? null}
                   marketOpen={marketOpen}
+                  refreshKey={updatedAt?.getTime() ?? 0}
                   onRefresh={() => void load(false)}
                   refreshing={refreshing}
                 />
