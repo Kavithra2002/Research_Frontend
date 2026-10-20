@@ -298,6 +298,7 @@ export function PrintedStatementPanel({
             if (!cancelled) {
               setMissing(true);
               setReports([]);
+              onYearsRef.current?.([]);
               onStatementsRef.current?.([]);
             }
             return;
@@ -317,6 +318,7 @@ export function PrintedStatementPanel({
         if (!cancelled) {
           setError(err instanceof Error ? err.message : String(err));
           setReports([]);
+          onYearsRef.current?.([]);
           onStatementsRef.current?.([]);
         }
       })
@@ -423,7 +425,7 @@ export function PrintedStatementPanel({
                 {merged?.companyName} · {yearLabel}
                 {unit ? ` · ${unit}` : ""}
                 {" · "}
-                Note numbers open the extracted note table
+                Same table as Extracted Tables · click a Note number to open it
               </p>
             </div>
           </div>

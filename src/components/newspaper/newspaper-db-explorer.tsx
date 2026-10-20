@@ -132,14 +132,32 @@ export function NewspaperDbExplorer({ className }: NewspaperDbExplorerProps) {
         if (printedRes.ok && printedJson.companies?.length) {
           const byName = new Map(list.map((c) => [c.name, c]));
           for (const printed of printedJson.companies) {
+            const printedYears = (printed.years ?? [])
+              .map((year) => Number(year))
+              .filter((year) => Number.isFinite(year));
             const existing = byName.get(printed.name);
             if (!existing) {
               byName.set(printed.name, {
                 name: printed.name,
                 displayName: printed.displayName,
-                years: (printed.years ?? []).map((year) => ({ year })),
+                years: printedYears.map((year) => ({ year })),
               });
+              continue;
             }
+            // Merge printed years into the extracted company so the Year
+            // range picker can offer the full extracted data range.
+            const mergedYears = new Map<number, ExtractedYearNode>();
+            for (const entry of existing.years ?? []) {
+              const year = Number(entry.year);
+              if (Number.isFinite(year)) mergedYears.set(year, entry);
+            }
+            for (const year of printedYears) {
+              if (!mergedYears.has(year)) mergedYears.set(year, { year });
+            }
+            byName.set(printed.name, {
+              ...existing,
+              years: [...mergedYears.values()].sort((a, b) => a.year - b.year),
+            });
           }
           list = [...byName.values()].sort((a, b) =>
             a.displayName.localeCompare(b.displayName, undefined, {
@@ -216,6 +234,13 @@ export function NewspaperDbExplorer({ className }: NewspaperDbExplorerProps) {
     () => rawCompanies.find((c) => c.name === selectedCompany) ?? null,
     [rawCompanies, selectedCompany],
   );
+
+  const extractedYears = React.useMemo(() => {
+    const years = (companyMeta?.years ?? [])
+      .map((entry) => Number(entry.year))
+      .filter((year) => Number.isFinite(year));
+    return [...new Set(years)].sort((a, b) => a - b);
+  }, [companyMeta]);
 
   const pilotMode = isCombPilotAvailable(selectedCompany);
 
@@ -350,6 +375,7 @@ export function NewspaperDbExplorer({ className }: NewspaperDbExplorerProps) {
         <DbTestView
           company={selectedCompany}
           companyDisplayName={companyMeta?.displayName}
+          extractedYears={extractedYears}
           refreshToken={testRefreshToken}
         />
       </div>
