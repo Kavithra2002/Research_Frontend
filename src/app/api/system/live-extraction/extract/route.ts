@@ -146,8 +146,9 @@ function buildArgs(mode: ExtractMode, body: Record<string, unknown>): string[] {
     if (companySlug) args.push("--company-slug", companySlug);
     args.push("--force");
     args.push("--use-pdf-extract");
-    // Notes-only: FS already in Extracted Tables; DB page adds clickable notes.
+    // FS from Extracted Tables; capture note pages + OpenAI extract for popups.
     args.push("--include-notes");
+    args.push("--use-openai-notes");
     args.push("--model", model);
     if (apikey) args.push("--apikey", apikey);
     return args;
