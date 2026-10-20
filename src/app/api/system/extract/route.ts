@@ -51,7 +51,15 @@ function getScriptDir() {
   if (fromEnv && fromEnv.trim().length > 0) {
     return path.resolve(fromEnv);
   }
-  return path.resolve(process.cwd(), "..", "backend");
+  return path.resolve(process.cwd(), "..", "backend", "scripts");
+}
+
+function newlyUploadedOutDir() {
+  const fromEnv = process.env.NEWLY_UPLOADED_DIR;
+  if (fromEnv && fromEnv.trim().length > 0) {
+    return path.resolve(fromEnv.trim());
+  }
+  return path.resolve(process.cwd(), "..", "backend", "newly_uploaded_report");
 }
 
 function pythonCommand() {
@@ -94,8 +102,9 @@ function startScan(opts: ScanOptions) {
   const scriptDir = getScriptDir();
   const scriptPath = path.join(scriptDir, "Extract_newly_updated.py");
   const python = pythonCommand();
+  const outDir = newlyUploadedOutDir();
 
-  const args: string[] = ["-u", scriptPath];
+  const args: string[] = ["-u", scriptPath, "--out", outDir];
   if (opts.date && /^\d{4}-\d{2}-\d{2}$/.test(opts.date)) {
     args.push("--date", opts.date);
   }
