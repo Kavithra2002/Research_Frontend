@@ -25,6 +25,15 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -215,6 +224,10 @@ export function DemoRunnerPanel() {
   const [cseCatalogError, setCseCatalogError] = React.useState<string | null>(null);
   const [cseDownloads, setCseDownloads] = React.useState<Map<string, CseReportSelection>>(new Map());
   const [downloading, setDownloading] = React.useState(false);
+  const [dbPrereqNotice, setDbPrereqNotice] = React.useState<{
+    mode: "db-annual" | "db-all";
+    years: number[];
+  } | null>(null);
 
   // relPath -> SelectedItem
   const [selected, setSelected] = React.useState<Map<string, SelectedItem>>(
@@ -515,9 +528,7 @@ export function DemoRunnerPanel() {
           annualYears,
         );
         if (missing.length > 0) {
-          window.alert(
-            `Before Run DB Annual, run Run Annual extraction first so these year(s) appear on the Extracted Tables page:\n\n${missing.join(", ")}\n\nRun DB Annual reuses those FS tables and only extracts clickable note tables.`,
-          );
+          setDbPrereqNotice({ mode: "db-annual", years: missing });
           return;
         }
         await runExtract({
@@ -545,9 +556,7 @@ export function DemoRunnerPanel() {
         }
         const missing = await yearsMissingOnExtractedTables(allSlug, allYears);
         if (missing.length > 0) {
-          window.alert(
-            `Before Run DB, run Run Annual extraction first so these year(s) appear on the Extracted Tables page:\n\n${missing.join(", ")}`,
-          );
+          setDbPrereqNotice({ mode: "db-all", years: missing });
           return;
         }
         await runExtract({
@@ -1155,6 +1164,54 @@ export function DemoRunnerPanel() {
           </CardContent>
         </Card>
       )}
+
+      <Dialog
+        open={dbPrereqNotice != null}
+        onOpenChange={(open) => {
+          if (!open) setDbPrereqNotice(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md" showCloseButton>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertCircle className="size-4 text-amber-500" />
+              Run Annual extraction first
+            </DialogTitle>
+            <DialogDescription className="space-y-3 text-left">
+              <span className="block">
+                {dbPrereqNotice?.mode === "db-annual"
+                  ? "Before Run DB Annual, finish Run Annual so these year(s) appear on Extracted Tables. DB Annual reuses those FS tables and only extracts clickable note tables."
+                  : "Before Run DB, finish Run Annual so these year(s) appear on Extracted Tables."}
+              </span>
+              {dbPrereqNotice && dbPrereqNotice.years.length > 0 ? (
+                <span className="flex flex-wrap gap-1.5 pt-1">
+                  {dbPrereqNotice.years.map((year) => (
+                    <Badge
+                      key={year}
+                      variant="secondary"
+                      className="font-mono text-xs tabular-nums"
+                    >
+                      {year}
+                    </Badge>
+                  ))}
+                </span>
+              ) : null}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose
+              render={
+                <Button
+                  size="sm"
+                  className="bg-emerald-600 text-white hover:bg-emerald-600/90 dark:bg-emerald-500 dark:hover:bg-emerald-500/90"
+                >
+                  Got it
+                </Button>
+              }
+            />
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
     </div>
   );
