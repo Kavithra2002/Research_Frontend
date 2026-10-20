@@ -32,6 +32,9 @@ const ALWAYS_FRESH_PREFIXES = [
   "/api/extracted",
   "/api/db/printed-companies",
   "/api/db/printed-statements",
+  // ASPI / S&P SL20 intraday series must always hit CSE — a boot or
+  // prior-navigation snapshot would keep showing yesterday's session.
+  "/api/analytics/index-chart",
 ];
 
 type GlobalWarmup = typeof globalThis & {
