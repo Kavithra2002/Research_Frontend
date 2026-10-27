@@ -16,7 +16,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { sortStatementKeys } from "@/lib/statement-types";
-import { extractedFirstDataUrl, peekWarmupJson } from "@/lib/warmup-data";
+import {
+  extractedFirstDataUrl,
+  peekWarmupJson,
+  WARMUP_SNAPSHOT_HEADER,
+} from "@/lib/warmup-data";
 import {
   ExtractedStatement,
   statementsFromResults,
@@ -159,6 +163,7 @@ export function ComparisonExplorer() {
     Record<string, CaptureImage[]>
   >({});
   const [dataLoading, setDataLoading] = React.useState(false);
+  const [capturesLoading, setCapturesLoading] = React.useState(false);
   const [dataError, setDataError] = React.useState<string | null>(null);
   const [selectedKey, setSelectedKey] = React.useState<string | null>(null);
   const [period, setPeriod] = React.useState<Period>("Annual");
@@ -324,6 +329,7 @@ export function ComparisonExplorer() {
     if (!selectedCompany) {
       setStatements([]);
       setCapturesByKey({});
+      setCapturesLoading(false);
       setDataError(null);
       setSelectedKey(null);
       return;
@@ -334,6 +340,7 @@ export function ComparisonExplorer() {
     if (useMongoTree && selectedYear == null) {
       setStatements([]);
       setCapturesByKey({});
+      setCapturesLoading(false);
       return;
     }
 
@@ -355,40 +362,45 @@ export function ComparisonExplorer() {
 
     const dataUrl = `/api/extracted/data?${dataParams.toString()}`;
     const captureUrl = `/api/extracted/captures?${captureParams.toString()}`;
+    // Table JSON may come from the boot snapshot. Capture images must always
+    // be read from the fixed year folder — a restart snapshot often has the
+    // table and an empty image list, which left the right pane blank.
     const cachedData = peekWarmupJson<DataResponse>(dataUrl);
-    const cachedCaptures = peekWarmupJson<CapturesResponse>(captureUrl);
     if (cachedData) {
       setStatements(statementsFromResults(cachedData.results ?? null));
-      if (cachedCaptures) {
-        const map: Record<string, CaptureImage[]> = {};
-        for (const stmt of cachedCaptures.statements ?? []) {
-          map[stmt.key] = stmt.images ?? [];
-        }
-        setCapturesByKey(map);
-      }
       setDataLoading(false);
-      return;
     }
 
     let cancelled = false;
-    setDataLoading(true);
-    setDataError(null);
+    if (!cachedData) {
+      setDataLoading(true);
+      setDataError(null);
+    }
+    setCapturesLoading(true);
+
+    const freshHeaders = { [WARMUP_SNAPSHOT_HEADER]: "1" };
 
     Promise.all([
-      fetch(dataUrl, { cache: "no-store" }).then(async (res) => {
-        const json = (await res.json()) as DataResponse;
-        if (!res.ok) {
-          throw new Error(json.error ?? `Request failed (${res.status})`);
-        }
-        return json;
-      }),
-      fetch(captureUrl, { cache: "no-store" }).then(async (res) => {
-        const json = (await res.json()) as CapturesResponse;
-        if (!res.ok) {
-          throw new Error(json.error ?? `Request failed (${res.status})`);
-        }
-        return json;
-      }),
+      cachedData
+        ? Promise.resolve(cachedData)
+        : fetch(dataUrl, { cache: "no-store", headers: freshHeaders }).then(
+            async (res) => {
+              const json = (await res.json()) as DataResponse;
+              if (!res.ok) {
+                throw new Error(json.error ?? `Request failed (${res.status})`);
+              }
+              return json;
+            },
+          ),
+      fetch(captureUrl, { cache: "no-store", headers: freshHeaders }).then(
+        async (res) => {
+          const json = (await res.json()) as CapturesResponse;
+          if (!res.ok) {
+            throw new Error(json.error ?? `Request failed (${res.status})`);
+          }
+          return json;
+        },
+      ),
     ])
       .then(([dataJson, capturesJson]) => {
         if (cancelled) return;
@@ -409,7 +421,10 @@ export function ComparisonExplorer() {
         setCapturesByKey({});
       })
       .finally(() => {
-        if (!cancelled) setDataLoading(false);
+        if (!cancelled) {
+          setDataLoading(false);
+          setCapturesLoading(false);
+        }
       });
 
     return () => {
@@ -661,11 +676,16 @@ export function ComparisonExplorer() {
                 <div
                   className={cn(
                     "min-w-0 flex-1 overflow-auto p-3",
-                    selectedImages.length === 0 &&
+                    (capturesLoading || selectedImages.length === 0) &&
                       "flex items-center justify-center",
                   )}
                 >
-                  {selectedImages.length === 0 ? (
+                  {capturesLoading ? (
+                    <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="size-4 animate-spin" />
+                      Loading capture images…
+                    </p>
+                  ) : selectedImages.length === 0 ? (
                     <p className="text-sm text-muted-foreground">
                       No capture images for this statement type.
                     </p>
