@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { isSafeSegment, listDirectory } from "@/lib/storage";
+import { isSafeSegment, listDirectory, readUtf8 } from "@/lib/storage";
 import {
   normalizeCapturePeriod,
   resolveDemoCaptureCompanyDir,
@@ -58,6 +58,61 @@ function buildLegacyImageUrl(
 ) {
   const params = new URLSearchParams({ company, statement, file, period });
   return `/api/extracted/capture?${params.toString()}`;
+}
+
+type CaptureIndex = {
+  statements?: Record<string, string[]>;
+};
+
+/** Fixed list written beside the images: `<year>/index.json`. */
+async function statementsFromIndex(
+  demoDir: string,
+  period: CapturePeriod,
+  year: string,
+  company: string,
+): Promise<CaptureStatement[] | null> {
+  let raw: string;
+  try {
+    raw = await readUtf8(
+      "demo_captures",
+      demoDir,
+      period,
+      year,
+      "index.json",
+    );
+  } catch {
+    return null;
+  }
+
+  let index: CaptureIndex;
+  try {
+    index = JSON.parse(raw) as CaptureIndex;
+  } catch {
+    return null;
+  }
+
+  const statements: CaptureStatement[] = [];
+  const entries = Object.entries(index.statements ?? {});
+  entries.sort(([a], [b]) => naturalCompare(a, b));
+
+  for (const [statementKey, files] of entries) {
+    if (!isSafeSegment(statementKey)) continue;
+    const images: CaptureImage[] = [];
+    for (const file of files ?? []) {
+      if (!isSafeSegment(file)) continue;
+      const ext = file.slice(file.lastIndexOf(".")).toLowerCase();
+      if (!ALLOWED_IMAGE_EXTENSIONS.has(ext)) continue;
+      images.push({
+        name: file,
+        size: 0,
+        modifiedAt: "",
+        url: buildDemoImageUrl(company, statementKey, file, period, year),
+      });
+    }
+    if (images.length > 0) statements.push({ key: statementKey, images });
+  }
+
+  return statements.length > 0 ? statements : null;
 }
 
 async function collectStatements(
@@ -124,11 +179,19 @@ export async function GET(request: NextRequest) {
   if (yearParam && /^\d{4}$/.test(yearParam)) {
     const demoDir = await resolveDemoCaptureCompanyDir(company);
     if (demoDir) {
-      const statements = await collectStatements(
-        ["demo_captures", demoDir, period, yearParam],
-        (statement, file) =>
-          buildDemoImageUrl(company, statement, file, period, yearParam),
+      const indexed = await statementsFromIndex(
+        demoDir,
+        period,
+        yearParam,
+        company,
       );
+      const statements =
+        indexed ??
+        (await collectStatements(
+          ["demo_captures", demoDir, period, yearParam],
+          (statement, file) =>
+            buildDemoImageUrl(company, statement, file, period, yearParam),
+        ));
       if (statements.length > 0) {
         return NextResponse.json({
           company,
