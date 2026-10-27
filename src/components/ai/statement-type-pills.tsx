@@ -13,6 +13,7 @@ export type StatementPillItem = {
   tableCount?: number;
   imageCount?: number;
   hasError?: boolean;
+  changedCount?: number;
 };
 
 export function StatementTypePills({
@@ -74,6 +75,12 @@ export function StatementTypePills({
                 >
                   {item.tableCount}
                 </Badge>
+              ) : null}
+              {item.changedCount ? (
+                <span
+                  className="size-2 shrink-0 rounded-full bg-green-500"
+                  title={`${item.changedCount} changed cell${item.changedCount === 1 ? "" : "s"}`}
+                />
               ) : null}
               {item.hasError ? (
                 <AlertCircle className="size-3 text-amber-500" />
