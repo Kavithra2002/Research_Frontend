@@ -8,6 +8,7 @@ import {
   FileText,
   FileWarning,
   TableProperties,
+  Upload,
 } from "lucide-react";
 
 import { StatementTypePills } from "@/components/ai/statement-type-pills";
@@ -20,6 +21,14 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  downloadExtractedTablesXlsx,
+  getCellChange,
+  readUploadedTablesFromBuffer,
+  type CellChange,
+  type CellChangeMap,
+  type UploadedTables,
+} from "@/lib/extracted-tables-excel";
 import {
   downloadExtractedTablesCsv,
   downloadExtractedTablesPdf,
@@ -61,6 +70,14 @@ export type ExtractedStatement = {
 
 const NUMBER_RE = /^\s*\(?\s*-?[\d.,]+\s*%?\)?\s*$/;
 const NEG_RE = /^\s*\(.*\)\s*$/;
+const CHANGED_CELL_CLASS =
+  "cursor-help bg-green-500/70 text-green-950 ring-1 ring-inset ring-green-700 dark:bg-green-500/55 dark:text-green-50 dark:ring-green-300";
+
+function changeTitle(change: CellChange | null) {
+  if (!change) return undefined;
+  const from = change.from.trim() ? change.from : "empty";
+  return `Changed from ${from}`;
+}
 
 function isNumberCell(value: string) {
   if (!value) return false;
@@ -189,12 +206,31 @@ export function statementsFromResults(
 export function StatementBlock({
   statement,
   compact = false,
+  changeMap = null,
 }: {
   statement: ExtractedStatement;
   compact?: boolean;
+  changeMap?: CellChangeMap | null;
 }) {
   const label = statementLabel(statement.key, statement.title);
   const data = statement.data;
+  const preambleChange = getCellChange(
+    changeMap,
+    statement.key,
+    -1,
+    "preamble",
+    0,
+    0,
+  );
+  const footnotesChange = getCellChange(
+    changeMap,
+    statement.key,
+    -1,
+    "footnotes",
+    0,
+    0,
+  );
+  const titleChange = getCellChange(changeMap, statement.key, -1, "title", 0, 0);
 
   return (
     <section className="flex min-w-0 flex-col rounded-xl border bg-card text-card-foreground shadow-sm">
@@ -207,8 +243,12 @@ export function StatementBlock({
             </h3>
             {data?.statement_title ? (
               <span
-                className="hidden text-xs text-muted-foreground sm:inline"
-                title={data.statement_title}
+                className={cn(
+                  "hidden text-xs text-muted-foreground sm:inline",
+                  titleChange &&
+                    "rounded bg-green-400/70 px-1 text-green-950 dark:bg-green-500/50 dark:text-green-50",
+                )}
+                title={changeTitle(titleChange) ?? data.statement_title}
               >
                 · {data.statement_title}
               </span>
@@ -251,7 +291,14 @@ export function StatementBlock({
         ) : (
           <>
             {data.preamble ? (
-              <p className="mb-3 shrink-0 text-xs italic text-muted-foreground">
+              <p
+                className={cn(
+                  "mb-3 shrink-0 text-xs italic text-muted-foreground",
+                  preambleChange &&
+                    "rounded bg-green-400/70 px-1.5 py-1 text-green-950 not-italic dark:bg-green-500/50 dark:text-green-50",
+                )}
+                title={changeTitle(preambleChange)}
+              >
                 {data.preamble}
               </p>
             ) : null}
@@ -263,11 +310,24 @@ export function StatementBlock({
             ) : (
               <div className="flex min-w-0 flex-col gap-3">
                 {(data.tables ?? []).map((table, idx) => (
-                  <FinancialTable key={idx} table={table} />
+                  <FinancialTable
+                    key={idx}
+                    table={table}
+                    tableIndex={idx}
+                    statementKey={statement.key}
+                    changeMap={changeMap}
+                  />
                 ))}
 
                 {data.footnotes ? (
-                  <div className="rounded-md bg-muted/40 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground whitespace-pre-line">
+                  <div
+                    className={cn(
+                      "rounded-md bg-muted/40 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground whitespace-pre-line",
+                      footnotesChange &&
+                        "bg-green-400/70 text-green-950 dark:bg-green-500/50 dark:text-green-50",
+                    )}
+                    title={changeTitle(footnotesChange)}
+                  >
                     {data.footnotes}
                   </div>
                 ) : null}
@@ -280,7 +340,17 @@ export function StatementBlock({
   );
 }
 
-export function FinancialTable({ table }: { table: ExtractedTable }) {
+export function FinancialTable({
+  table,
+  tableIndex = 0,
+  statementKey = "",
+  changeMap = null,
+}: {
+  table: ExtractedTable;
+  tableIndex?: number;
+  statementKey?: string;
+  changeMap?: CellChangeMap | null;
+}) {
   const headerRows = table.header_rows ?? [];
   const rows = table.rows ?? [];
   const colCount = Math.max(
@@ -289,12 +359,31 @@ export function FinancialTable({ table }: { table: ExtractedTable }) {
     1,
   );
   const dataRowCount = rows.filter((r) => (r.style ?? "data") !== "blank").length;
+  const captionChange = getCellChange(
+    changeMap,
+    statementKey,
+    tableIndex,
+    "caption",
+    0,
+    0,
+  );
 
   return (
     <div className="min-w-0 overflow-hidden rounded-md border">
       {table.caption || dataRowCount > 0 ? (
-        <div className="flex items-center justify-between gap-2 border-b bg-muted/40 px-3 py-1.5">
-          <div className="min-w-0 truncate text-[11px] font-semibold uppercase tracking-wider text-foreground/80">
+        <div
+          className={cn(
+            "flex items-center justify-between gap-2 border-b bg-muted/40 px-3 py-1.5",
+            captionChange && "bg-green-400/70 dark:bg-green-500/50",
+          )}
+          title={changeTitle(captionChange)}
+        >
+          <div
+            className={cn(
+              "min-w-0 truncate text-[11px] font-semibold uppercase tracking-wider text-foreground/80",
+              captionChange && "text-green-950 dark:text-green-50",
+            )}
+          >
             {table.caption ?? ""}
           </div>
           <Badge variant="secondary" className="shrink-0 text-[10px]">
@@ -319,6 +408,14 @@ export function FinancialTable({ table }: { table: ExtractedTable }) {
                 <tr key={`h-${ri}`}>
                   {Array.from({ length: colCount }).map((_, ci) => {
                     const value = row[ci] ?? "";
+                    const change = getCellChange(
+                      changeMap,
+                      statementKey,
+                      tableIndex,
+                      "h",
+                      ri,
+                      ci,
+                    );
                     return (
                       <th
                         key={ci}
@@ -327,7 +424,10 @@ export function FinancialTable({ table }: { table: ExtractedTable }) {
                           ci === 0
                             ? "text-left"
                             : "text-right whitespace-nowrap",
+                          change && CHANGED_CELL_CLASS,
                         )}
+                        title={changeTitle(change)}
+                        data-changed={change ? "true" : undefined}
                       >
                         {value}
                       </th>
@@ -391,6 +491,14 @@ export function FinancialTable({ table }: { table: ExtractedTable }) {
                     const isFirst = ci === 0;
                     const numeric = !isFirst && isNumberCell(value);
                     const isNegative = numeric && NEG_RE.test(value.trim());
+                    const change = getCellChange(
+                      changeMap,
+                      statementKey,
+                      tableIndex,
+                      "r",
+                      ri,
+                      ci,
+                    );
 
                     return (
                       <td
@@ -405,7 +513,10 @@ export function FinancialTable({ table }: { table: ExtractedTable }) {
                           (isSection || isHighlightSection) &&
                             isFirst &&
                             "text-[11px]",
+                          change && CHANGED_CELL_CLASS,
                         )}
+                        title={changeTitle(change)}
+                        data-changed={change ? "true" : undefined}
                       >
                         {value}
                       </td>
@@ -444,35 +555,111 @@ export function ExtractedTablesView({
   exportMeta?: ExtractedExportMeta | null;
 }) {
   const [selectedKey, setSelectedKey] = React.useState<string | null>(null);
+  const [upload, setUpload] = React.useState<UploadedTables | null>(null);
+  const [uploadError, setUploadError] = React.useState<string | null>(null);
+  const [uploading, setUploading] = React.useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  const exportCompany = exportMeta?.companyName ?? "";
+  const exportYear = exportMeta?.year ?? null;
+  const exportPeriod = exportMeta?.period ?? null;
+  const exportQuarter = exportMeta?.quarter ?? null;
+
+  const sourceSignature = React.useMemo(() => {
+    const body = statements
+      .map((statement) => {
+        const tables = statement.data?.tables ?? [];
+        const cells = tables
+          .map((table) =>
+            (table.rows ?? [])
+              .map((row) => (row.cells ?? []).join("\u0001"))
+              .join("\u0002"),
+          )
+          .join("\u0003");
+        return `${statement.key}\u0004${cells}`;
+      })
+      .join("\u0005");
+    return [exportCompany, exportYear, exportPeriod, exportQuarter, body].join(
+      "\u0006",
+    );
+  }, [statements, exportCompany, exportYear, exportPeriod, exportQuarter]);
+
+  const [seenSignature, setSeenSignature] = React.useState(sourceSignature);
+  if (seenSignature !== sourceSignature) {
+    setSeenSignature(sourceSignature);
+    setUpload(null);
+    setUploadError(null);
+  }
+
+  const viewStatements = upload?.statements ?? statements;
 
   React.useEffect(() => {
-    if (!statements || statements.length === 0) {
+    if (!viewStatements || viewStatements.length === 0) {
       setSelectedKey(null);
       return;
     }
-    if (!selectedKey || !statements.some((s) => s.key === selectedKey)) {
-      setSelectedKey(statements[0].key);
+    if (!selectedKey || !viewStatements.some((s) => s.key === selectedKey)) {
+      setSelectedKey(viewStatements[0].key);
     }
-  }, [statements, selectedKey]);
+  }, [viewStatements, selectedKey]);
 
   const canDownload = React.useMemo(
     () =>
-      statements.some(
-        (s) =>
-          s.status !== "error" && (s.data?.tables?.length ?? 0) > 0,
+      viewStatements.some(
+        (s) => s.status !== "error" && (s.data?.tables?.length ?? 0) > 0,
       ),
-    [statements],
+    [viewStatements],
   );
 
   const resolvedMeta: ExtractedExportMeta = React.useMemo(
     () => ({
-      companyName: exportMeta?.companyName?.trim() || "extracted",
-      year: exportMeta?.year ?? null,
-      period: exportMeta?.period ?? null,
-      quarter: exportMeta?.quarter ?? null,
+      companyName: exportCompany.trim() || "extracted",
+      year: exportYear,
+      period: exportPeriod,
+      quarter: exportQuarter,
     }),
-    [exportMeta],
+    [exportCompany, exportYear, exportPeriod, exportQuarter],
   );
+
+  const changeCounts = React.useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const key of Object.keys(upload?.changes ?? {})) {
+      const statementKey = key.split("\t")[0] ?? "";
+      if (!statementKey) continue;
+      counts[statementKey] = (counts[statementKey] ?? 0) + 1;
+    }
+    return counts;
+  }, [upload]);
+
+  const sourceSignatureRef = React.useRef(sourceSignature);
+  sourceSignatureRef.current = sourceSignature;
+
+  const handleUpload = React.useCallback(
+    async (file: File) => {
+      const signature = sourceSignatureRef.current;
+      setUploading(true);
+      setUploadError(null);
+      try {
+        const buffer = await file.arrayBuffer();
+        const result = await readUploadedTablesFromBuffer(
+          buffer,
+          file.name,
+          statements,
+        );
+        if (sourceSignatureRef.current !== signature) return;
+        setUpload(result);
+      } catch (err) {
+        setUploadError(
+          err instanceof Error ? err.message : "Could not read that Excel file.",
+        );
+      } finally {
+        setUploading(false);
+      }
+    },
+    [statements],
+  );
+
+  const changeCount = Object.keys(upload?.changes ?? {}).length;
 
   if (loading) {
     return (
@@ -496,7 +683,7 @@ export function ExtractedTablesView({
     );
   }
 
-  if (!statements || statements.length === 0) {
+  if (!viewStatements || viewStatements.length === 0) {
     return (
       <div className="flex h-full flex-1 items-center justify-center p-10 text-center">
         <div className="max-w-sm">
@@ -514,7 +701,7 @@ export function ExtractedTablesView({
   }
 
   const selected =
-    statements.find((s) => s.key === selectedKey) ?? statements[0];
+    viewStatements.find((s) => s.key === selectedKey) ?? viewStatements[0];
 
   return (
     <div className="flex min-w-0 flex-col gap-2 p-3">
@@ -529,17 +716,45 @@ export function ExtractedTablesView({
         <div className="flex min-w-0 items-center gap-2">
           <div className="min-w-0 flex-1">
             <StatementTypePills
-              items={statements.map((statement) => ({
+              items={viewStatements.map((statement) => ({
                 key: statement.key,
                 title: statement.title,
                 tableCount: statement.data?.tables?.length ?? 0,
                 hasError:
                   statement.status === "error" || Boolean(statement.error),
+                changedCount: changeCounts[statement.key] ?? 0,
               }))}
               selectedKey={selected.key}
               onSelect={setSelectedKey}
             />
           </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
+            className="hidden"
+            aria-label="Upload edited Excel"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              event.target.value = "";
+              if (file) void handleUpload(file);
+            }}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 shrink-0 gap-1.5"
+            disabled={!canDownload || uploading}
+            aria-label="Upload edited Excel"
+            title="Upload an edited Excel file from Download → Excel"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <Upload className="size-3.5" />
+            <span className="hidden sm:inline">
+              {uploading ? "Reading…" : "Upload"}
+            </span>
+          </Button>
           <DropdownMenu>
             <DropdownMenuTrigger
               render={
@@ -561,8 +776,26 @@ export function ExtractedTablesView({
               <DropdownMenuGroup>
                 <DropdownMenuItem
                   disabled={!canDownload}
+                  onClick={() => {
+                    void downloadExtractedTablesXlsx(
+                      viewStatements,
+                      resolvedMeta,
+                    ).catch((err) => {
+                      setUploadError(
+                        err instanceof Error
+                          ? err.message
+                          : "Could not download Excel.",
+                      );
+                    });
+                  }}
+                >
+                  <FileSpreadsheet className="size-4" />
+                  Excel
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={!canDownload}
                   onClick={() =>
-                    downloadExtractedTablesPdf(statements, resolvedMeta)
+                    downloadExtractedTablesPdf(viewStatements, resolvedMeta)
                   }
                 >
                   <FileText className="size-4" />
@@ -571,7 +804,7 @@ export function ExtractedTablesView({
                 <DropdownMenuItem
                   disabled={!canDownload}
                   onClick={() =>
-                    downloadExtractedTablesCsv(statements, resolvedMeta)
+                    downloadExtractedTablesCsv(viewStatements, resolvedMeta)
                   }
                 >
                   <FileSpreadsheet className="size-4" />
@@ -581,10 +814,38 @@ export function ExtractedTablesView({
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
+        {upload ? (
+          <div className="mt-2 flex items-center justify-between gap-2 rounded-md border border-green-600/40 bg-green-500/15 px-3 py-1.5 text-xs text-green-950 dark:text-green-50">
+            <span>
+              {changeCount === 0
+                ? "Uploaded file matches the extracted tables. No cells changed."
+                : `Showing the uploaded spreadsheet. ${changeCount} cell${changeCount === 1 ? "" : "s"} changed — highlighted in green.`}
+            </span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="xs"
+              className="h-6 shrink-0 px-2 text-xs"
+              onClick={() => {
+                setUpload(null);
+                setUploadError(null);
+              }}
+            >
+              Reset
+            </Button>
+          </div>
+        ) : null}
+        {uploadError ? (
+          <p className="mt-2 text-xs text-destructive">{uploadError}</p>
+        ) : null}
       </div>
 
       <div className="flex min-w-0 flex-col">
-        <StatementBlock statement={selected} compact />
+        <StatementBlock
+          statement={selected}
+          compact
+          changeMap={upload?.changes ?? null}
+        />
       </div>
     </div>
   );
