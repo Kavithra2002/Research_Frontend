@@ -87,7 +87,7 @@ export async function GET(request: NextRequest) {
     headers: {
       "Content-Type": contentType,
       "Content-Length": String(stat.size),
-      "Cache-Control": "private, max-age=300",
+      "Cache-Control": "private, no-cache",
     },
   });
 }
