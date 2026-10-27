@@ -239,12 +239,12 @@ function csvRow(cells: string[]) {
   return cells.map(csvCell).join(",");
 }
 
-export function downloadExtractedTablesCsv(
+export function buildExtractedTablesCsvText(
   statements: ExtractedStatement[],
   meta: ExtractedExportMeta,
-) {
+): string | null {
   const usable = statementsWithTables(statements);
-  if (usable.length === 0) return;
+  if (usable.length === 0) return null;
 
   const lines: string[] = [];
   lines.push(csvRow([exportTitle(meta)]));
@@ -277,8 +277,17 @@ export function downloadExtractedTablesCsv(
     }
   });
 
+  return lines.join("\r\n");
+}
+
+export function downloadExtractedTablesCsv(
+  statements: ExtractedStatement[],
+  meta: ExtractedExportMeta,
+) {
+  const text = buildExtractedTablesCsvText(statements, meta);
+  if (!text) return;
   // BOM so Excel opens UTF-8 correctly.
-  const blob = new Blob(["\uFEFF" + lines.join("\r\n")], {
+  const blob = new Blob(["\uFEFF" + text], {
     type: "text/csv;charset=utf-8;",
   });
   triggerDownload(blob, `${buildBaseName(meta)}.csv`);
